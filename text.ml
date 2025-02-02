@@ -43,9 +43,9 @@ let state = {
 
 type view = { start: int } (* Should be the start of a physical line *)
 type local_position = { pos: int; physical_line: int; col: int } (* 0-indexed *)
-type local_state = { view: view; cursor_position: local_position; username: string; move_since_cut: bool; view_only: bool; clipboard: string }
+type local_state = { view: view; cursor_position: local_position; move_since_cut: bool; view_only: bool; clipboard: string; user_id: int option }
 let local_state = {
-    username = (Unix.getuid () |> Unix.getpwuid).pw_name;
+    user_id = None;
     view = { start=0 };
     view_only = false;
     move_since_cut = true;
@@ -149,15 +149,22 @@ let get_button keystroke =
 type send_action =
     (* Remote only *)
     | Save 
-    (* Local and remote *)
+    (* Remote, will be sent back as local *)
+    | OpenDocument of string * string
     | ReplaceText of int * int * string
     (* Local only *)
     | CopyText of string
     | CutFlag of bool
     | DisplayError of string
     | Exit
-let string_of_action = function
+let is_local = function
+    | CopyText _ | CutFlag _ | DisplayError _ | Exit -> true
+    | _ -> false
+let local_only = List.filter is_local
+let remote_only = List.filter (function x -> not (is_local x))
+let string_of_send_action = function
     | Save -> "<Save>"
+    | OpenDocument (u, d) -> Printf.sprintf "<OpenDocument \"%s\" \"%s\">" (String.escaped u) (String.escaped d)
     | ReplaceText (start, len, s) -> Printf.sprintf "<ReplaceText %d %d \"%s\">" start len (String.escaped s)
     | CopyText s -> Printf.sprintf "<CopyText \"%s\">" (String.escaped s)
     | CutFlag f -> Printf.sprintf "<CutFlag %s>" (Bool.to_string f)
@@ -239,35 +246,88 @@ let compute_actions state button =
     | _ -> [CutFlag false] 
     in actions
 
-let () = while true do
-    let keystroke = get_keystroke() in
-    (*let () = String.escaped keystroke |> print_endline in*)
-    print_string (Printf.sprintf "\"%s\" || " (String.escaped keystroke));
-    let button = get_button keystroke in
-    string_of_button button |> print_string; print_string " || ";
-    let actions = compute_actions state button in
-    print_endline (join_with "" (List.map string_of_action actions))
-done
+(* Step 4: Apply local state changes *)
 
-(* Step 4: Send the action to the server *)
-(* Step 5: Receive an action from the server *)
-(* Step 6: Transform the state based on the action
+(* TODO: Implement *)
+let apply_local_action (state: state) (local_state: local_state) (action: send_action): local_state =
+    print_endline (Printf.sprintf "ApplyingLocal: %s" (string_of_send_action action));
+    local_state
+
+(* Step 5: Send the action to the server *)
+(* Step 6: Receive an action from the server *)
+type receive_action =  
+    | ReplaceText of int * int * int * string
+    | UserLeaves of int
+    | UserJoins of user_state
+    | SetUser of int
+let string_of_receive_action = function
+    | ReplaceText (uid, a, b, s) -> Printf.sprintf "ReplaceText[u=%d,%d,%d,\"%s\"]" uid a b (String.escaped s)
+    | UserLeaves uid -> Printf.sprintf "UserLeaves[u=%d]" uid
+    | UserJoins { user } -> Printf.sprintf "UserJoins[un=%s,...]" user
+    | SetUser uid -> Printf.sprintf "SetUser[u=%d]" uid
+
+let server_stub (uid : int option): (send_action -> receive_action list) = function
+    | ReplaceText (a,b,c) -> (match uid with
+        | Some uid -> [ReplaceText (uid,a,b,c)]
+        | None -> [] )
+    | OpenDocument (document, username) -> [UserJoins { user=username; cursor=0; color=Red }; SetUser 0] (* TODO *)
+    | Save -> [] (* Doesn't happen in stub *)
+    | _ -> [] (* Local events are never sent *)
+
+(* Step 7: Transform the state based on the action
     - Text
     - Cursor position (per-user)
     - Undo/redo list (per-user)
     - Clipboard (per-user)
     VIEW is not included in the state, but consists of a start position only, which is always at the beginning of a line.
 *)
-(* Step 7: Update the UI
+
+(* TODO: Implement *)
+let apply_remote_action (combined_state: state * local_state) (action: receive_action) : state * local_state = 
+    print_endline (Printf.sprintf "ApplyingRemote: %s" (string_of_receive_action action));
+    let (state, local_state) = combined_state in
+    match action with
+    | ReplaceText (uid, start, length, replacement) -> (state, local_state)
+    | UserLeaves uid -> (state, local_state)
+    | UserJoins user_state -> (state, local_state)
+    | SetUser uid -> (state, local_state)
+
+(* Step 8: Update the UI
     8a: Calculate the view, based on the last view, the current terminal size, and the cursor position.
     8b: Display the text (or the help)
     8c: Display the active users
     8d: Display the shortcuts
 *)
+
+(* TODO: Implement *)
+let display (state: state) (local_state: local_state) : unit =
+    ()
+
 (* [Go to step 1] *)
 (* Teardown:
     Send "Disconnect" to the server.
 *)
+
+(* (Unix.getuid () |> Unix.getpwuid).pw_name; *)
+let local_state = ref local_state
+let state = ref state
+let () = while true do
+    let keystroke = get_keystroke() in
+        print_string (Printf.sprintf "\"%s\" || " (String.escaped keystroke));
+    let button = get_button keystroke in
+        string_of_button button |> print_string; print_string " || ";
+    let actions = compute_actions !state button in
+        print_endline (join_with "" (List.map string_of_send_action actions));
+        print_string "Local: "; print_endline (join_with "" (List.map string_of_send_action (local_only actions)));
+    local_state := List.fold_left (apply_local_action !state) !local_state (local_only actions);
+        print_string "Sent to server: "; print_endline (join_with "" (List.map string_of_send_action (remote_only actions)));
+    let msgs = List.concat (List.map (server_stub (Some 0)) (remote_only actions)) in
+        print_string "Received from server: "; print_endline (join_with "" (List.map string_of_receive_action msgs));
+    let (s, ls) = List.fold_left apply_remote_action (!state, !local_state) msgs in
+    state := s;
+    local_state := ls;
+    display !state !local_state
+done
 
 (* SERVER LOGIC *)
 (* Setup:

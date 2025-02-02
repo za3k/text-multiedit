@@ -1,0 +1,14 @@
+I'm going to do a little ocaml programming. I should think of a fun tiny project to get comfortable in the language. Later goals are stuff like syscalls, network programming, etc.
+
+How about something like Tetris or a simple roguelike, that kind of thing, for today?
+Something turn based would be easiest, I'll do that.
+Hmm. Chess? Chessrogue clone?
+
+
+Sounds too complciated.
+Some kind of choose your own adventure novel? More fun, let's do that.
+
+.ml: implementation file (.c equiv)
+.mli: interface file (.h ish equiv)
+
+What is a good editor for ocaml? VSCode.

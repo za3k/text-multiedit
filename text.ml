@@ -94,6 +94,7 @@ let join_with sep = function
     | [] -> ""
     | first :: l -> List.fold_left (fun s1 s2 -> (Printf.sprintf "%s%s%s" s1 sep s2)) first l
 let join_with_spaces = join_with " "
+let clamp (x1:int) (x2:int) (x:int) : int = min (max x x1) x2
 
 (* Step 1: Read a keystroke *)
 let get_keystroke char_reader =
@@ -230,23 +231,23 @@ pos = get_cursor state local_state.username
 let string_count (s:string) (c: char) : int =
     String.fold_left (fun acc x -> if x = c then acc + 1 else acc) 0 s
 
-let nth_char (s: string) (c: char) (n: int) : int = 
+let nth_char (c: char) (s: string) (n: int) : int = 
     (* [nth_char s c n] is the index of the n-th copy of [c] in [s].
     Raises [Not_found] if there are less than [n] copies of [c] in [s]. *)
-    let rec helper (s: string) (offset: int) (c: char) : int->int = function
+    let rec helper (c: char) (s: string) (offset: int) : int->int = function
         | 0 -> offset
-        | n -> helper s (String.index_from s offset c) c (n-1)
-    in helper s 0 c n
-let nth_line s = nth_char s '\n'
+        | n -> helper c s (String.index_from s offset c) (n-1)
+    in helper c s 0 n
+let nth_line = nth_char '\n'
 
 let line_of (text : string) (pos : int) : int * int =
     (* [line_of text pos] is the line and column number of the [pos]-th byte in [text].
     All indices are from 0.*)
-    let rec helper text offset pos lines =
+    let rec helper (text: string) (offset: int) (pos: int) (lines_before_offset: int) =
         match String.index_from_opt text offset '\n' with
-            | Some i when i < pos -> helper text i pos (lines+1)
-            | _ -> (lines, pos-offset)
-    in helper text 0 (min (max 0 pos) ((String.length text)-1)) 0
+            | Some i when i < pos -> helper text i pos (lines_before_offset+1)
+            | _ -> (lines_before_offset, pos-offset)
+    in helper text 0 (clamp 0 ((String.length text)-1) pos) 0
 
 let line_for (text : string) (pos : int) : int * int =
     (* [line_for text pos] is the start and end of the line containing the [pos]-th byte in [text]. *)
@@ -255,7 +256,6 @@ let line_for (text : string) (pos : int) : int * int =
     let end_line = nth_line text (line_num+1) in
     (start, end_line)
 
-let clamp (x1:int) (x2:int) (x:int) : int = min (max x x1) x2
 let pos_of (text: string) (line: int) (col: int) : int =
     (* [pos_of text line col] is the byte index of the [col]-th byte in the [line]-th line of [text].
     All indices are from 0.*)

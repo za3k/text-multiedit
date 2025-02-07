@@ -234,6 +234,7 @@ let string_count (s:string) (c: char) : int =
 let nth_char (c: char) (s: string) (n: int) : int = 
     (* [nth_char s c n] is the index of the n-th copy of [c] in [s].
     Raises [Not_found] if there are less than [n] copies of [c] in [s]. *)
+    if n < 0 then 0 else
     let rec helper (c: char) (s: string) (offset: int) : int->int = function
         | 0 -> offset
         | n -> helper c s (String.index_from s offset c) (n-1)
@@ -262,7 +263,7 @@ let pos_of (text: string) (line: int) (col: int) : int =
     All indices are from 0.*)
     if line < 0 then 0 else
     let max_line_num = (string_count text '\n') in
-    col + nth_line text (clamp 0 max_line_num line) |> clamp 0 ((String.length text)-1)
+    col + nth_line text (clamp 0 max_line_num line) |> clamp 0 ((String.length text)-1) (* TODO: clamp col to the length of the line *)
 
 let page_lines = 10 (* TODO: Make depend on the terminal height *)
 let compute_actions state button = 
@@ -277,21 +278,21 @@ let compute_actions state button =
     | Del -> delete 0 1
     | Cut -> cut (not move_since_cut) clipboard text pos first last
     | Down -> move_cursor ((pos_of text (physical_line+1) col)-pos)
-    | End -> move_cursor (last-pos)
+    | Up ->   move_cursor ((pos_of text (physical_line-1) col)-pos)
+    | End ->  move_cursor (last-pos)
+    | Home -> move_cursor (first-pos)
+    | PageDown -> move_cursor ((pos_of text (physical_line+page_lines) col)-pos)
+    | PageUp ->   move_cursor ((pos_of text (physical_line-page_lines) col)-pos)
     | Exit -> [Exit]
     | Help -> [] (* TODO *)
-    | Home -> move_cursor (first-pos)
     | Justify -> [] (* TODO *)
     | Left -> move_cursor (-1)
-    | PageDown -> move_cursor ((pos_of text (physical_line+page_lines) col)-pos)
-    | PageUp -> move_cursor ((pos_of text (physical_line-page_lines) col)-pos)
-    | Paste -> insert 0 clipboard
     | Right -> move_cursor 1
+    | Paste -> insert 0 clipboard
     | Save -> [Save]
     | ScrollDown -> [] (* TODO: Affect the view, not the cursor *)
     | ScrollUp -> []
     | Tab -> insert 0 "    "
-    | Up -> move_cursor ((pos_of text (physical_line-1) col)-pos)
     | Key c -> insert 0 (String.make 1 c)
     | Unknown s -> [DisplayError (Printf.sprintf "Unknown key pressed: %s" s)]
     in let actions = actions @ match button with

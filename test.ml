@@ -7,7 +7,7 @@ let pos_of (text: string) (line: int) (col: int) : int =
 *)
 
 let text = "14\nThis is the first line\nThis is the second line\nThis is the third line\n"
-let text = "12\n45\n78\n"
+let text = "01\n34\n67\n"
 let tests = "test suite for line_of" >::: [
    "t0" >:: (fun _ -> assert_equal (line_of text 0) (0, 0));
    "t1" >:: (fun _ -> assert_equal (line_of text 1) (0, 1));

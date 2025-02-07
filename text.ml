@@ -71,7 +71,7 @@ let color_code (color: background_color) : string = match color with
 type user_state = { user: string; cursor: int; color: background_color; }
 type state = { text: string; document_name: string; per_user: user_state list }
 let state = {
-    text="Hello, world.\nThis is the second line.\n"; (* Invariant: every file has a newline at the end *)
+    text="Hello, world.\nThis is the second line.\nThis is the third line.\nThis is the fourth line\nThis is the fifth line\n"; (* Invariant: every file has a newline at the end *)
     document_name="test_file.txt";
     per_user = [
         { user="zachary"; cursor=2; color=Red;  };
@@ -415,25 +415,26 @@ let display (state: state) (local_state: local_state) : unit =
     - Terminal resize events (SIGWINCH)
     - User keyboard input
 *)
-let local_state = ref local_state
-let state = ref state
-let () = while true do
-    let keystroke = get_keystroke() in
-        print_string (Printf.sprintf "\"%s\" || " (String.escaped keystroke));
-    let button = get_button keystroke in
-        string_of_button button |> print_string; print_string " || ";
-    let actions = compute_actions !state button in
-        print_endline (join_with "" (List.map string_of_send_action actions));
-        (*print_string "Local: "; print_endline (join_with "" (List.map string_of_send_action (local_only actions)));*)
-    local_state := List.fold_left (apply_local_action !state) !local_state (local_only actions);
-        (*print_string "Sent to server: "; print_endline (join_with "" (List.map string_of_send_action (remote_only actions)));*)
-    let msgs = List.concat (List.map (server_stub (Some 0)) (remote_only actions)) in
-        (*print_string "Received from server: "; print_endline (join_with "" (List.map string_of_receive_action msgs));*)
-    let (s, ls) = List.fold_left apply_remote_action (!state, !local_state) msgs in
-    state := s;
-    local_state := ls;
-    display !state !local_state
-done
+let client_main () : unit =
+    let local_state = ref local_state in
+    let state = ref state in
+    while true do
+        let keystroke = get_keystroke() in
+            print_string (Printf.sprintf "\"%s\" || " (String.escaped keystroke));
+        let button = get_button keystroke in
+            string_of_button button |> print_string; print_string " || ";
+        let actions = compute_actions !state button in
+            print_endline (join_with "" (List.map string_of_send_action actions));
+            (*print_string "Local: "; print_endline (join_with "" (List.map string_of_send_action (local_only actions)));*)
+        local_state := List.fold_left (apply_local_action !state) !local_state (local_only actions);
+            (*print_string "Sent to server: "; print_endline (join_with "" (List.map string_of_send_action (remote_only actions)));*)
+        let msgs = List.concat (List.map (server_stub (Some 0)) (remote_only actions)) in
+            (*print_string "Received from server: "; print_endline (join_with "" (List.map string_of_receive_action msgs));*)
+        let (s, ls) = List.fold_left apply_remote_action (!state, !local_state) msgs in
+        state := s;
+        local_state := ls;
+        display !state !local_state
+    done
 
 (* SERVER LOGIC *)
 (* Setup:
@@ -461,5 +462,3 @@ done
     Send+apply: "<user> disconnected" action
     If there are zero users connected, save the document and remove it from the documents list.
 *)
-
-

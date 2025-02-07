@@ -309,6 +309,12 @@ let display (state: state) (local_state: local_state) : unit =
 *)
 
 (* (Unix.getuid () |> Unix.getpwuid).pw_name; *)
+
+(* In a loop, listen for any of:
+    - Messages from the server
+    - Terminal resize events (SIGWINCH)
+    - User keyboard input
+*)
 let local_state = ref local_state
 let state = ref state
 let () = while true do

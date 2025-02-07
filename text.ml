@@ -261,7 +261,7 @@ let pos_of (text: string) (line: int) (col: int) : int =
     (* [pos_of text line col] is the byte index of the [col]-th byte in the [line]-th line of [text].
     All indices are from 0.*)
     let max_line_num = (string_count text '\n') in
-    col + nth_line text (clamp 0 max_line_num line)
+    col + nth_line text (clamp 0 max_line_num line) |> clamp 0 ((String.length text)-1)
 
 let page_lines = 10 (* TODO: Make depend on the terminal height *)
 let compute_actions state button = 

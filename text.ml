@@ -263,7 +263,8 @@ let pos_of (text: string) (line: int) (col: int) : int =
     All indices are from 0.*)
     if line < 0 then 0 else
     let max_line_num = (string_count text '\n') in
-    col + nth_line text (clamp 0 max_line_num line) |> clamp 0 ((String.length text)-1) (* TODO: clamp col to the length of the line *)
+    let ans = col + nth_line text (clamp 0 max_line_num line) |> clamp 0 ((String.length text)-1) in (* TODO: clamp col to the length of the line *)
+    Printf.sprintf "POS(%d %d => %d)" line col ans |> print_string; ans
 
 let compute_actions state local_state button = 
     let page_lines = 10 in (* TODO: Make depend on the terminal height *)

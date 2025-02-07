@@ -233,7 +233,7 @@ let string_count s t =
 let nth_char s c n = 
     (* [nth_char s c n] is the index of the n-th copy of [c] in [s].
     Raises [Not_found] if there are less than [n] copies of [c] in [s]. *)
-    let rec helper s offset c = function
+    let rec helper (s: string) (offset: int) (c: char) : int->int = function
         | 0 -> offset
         | n -> helper s (String.index_from s offset c) c (n-1)
     in helper s 0 c n

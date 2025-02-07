@@ -243,11 +243,11 @@ let nth_line = nth_char '\n'
 let line_of (text : string) (pos : int) : int * int =
     (* [line_of text pos] is the line and column number of the [pos]-th byte in [text].
     All indices are from 0.*)
-    let rec helper (text: string) (offset: int) (pos: int) (lines_before_offset: int) =
+    let rec helper (text: string) (pos: int) (offset: int) (lines_before_offset: int) =
         match String.index_from_opt text offset '\n' with
-            | Some i when i < pos -> helper text i pos (lines_before_offset+1)
+            | Some i when i < pos -> helper text pos i (lines_before_offset+1)
             | _ -> (lines_before_offset, pos-offset)
-    in helper text 0 (clamp 0 ((String.length text)-1) pos) 0
+    in helper text (clamp 0 ((String.length text)-1) pos) 0 0
 
 let line_for (text : string) (pos : int) : int * int =
     (* [line_for text pos] is the start and end of the line containing the [pos]-th byte in [text]. *)

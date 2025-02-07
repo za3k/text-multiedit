@@ -1,3 +1,5 @@
 *.cmi
 *.cmo
 *.o
+*.log
+*.cache

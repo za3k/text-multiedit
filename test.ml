@@ -19,7 +19,7 @@ let tests = "test suite for line_of" >::: [
    "t7" >:: (fun _ -> assert_equal (line_of text 7) (2, 1));
    "t8" >:: (fun _ -> assert_equal (line_of text 8) (2, 2));
 
-   "off left" >:: (fun _ -> assert_equal (line_of text (-1)) (0, 0));
+   "off left" >:: (fun _ -> assert_equal (line_of text ~-1) (0, 0));
    "off right" >:: (fun _ -> assert_equal (line_of text 9) (2, 2));
 ]
 
@@ -36,6 +36,8 @@ let tests = "test suite for pos_of" >::: [
    "t7" >:: (fun _ -> assert_equal (pos_of text 2 5) 7);
    "t8" >:: (fun _ -> assert_equal (pos_of text 2 6) 8);
 
+   "off top" >:: (fun _ -> assert_equal (pos_of text ~-3 2) 0);
+   "off left" >:: (fun _ -> assert_equal (pos_of text 0 ~-5) 0);
    "off right" >:: (fun _ -> assert_equal (pos_of text 2 7) 8);
    "off bottom" >:: (fun _ -> assert_equal (pos_of text 3 6) 8);
 ]

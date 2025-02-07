@@ -70,7 +70,7 @@ let color_code (color: background_color) : string = match color with
 
 type user_state = { user: string; cursor: int; color: background_color; }
 type state = { text: string; document_name: string; per_user: user_state list }
-let state = {
+let init_state = {
     text="Hello, world.\nThis is the second line.\nThis is the third line.\nThis is the fourth line\nThis is the fifth line\n"; (* Invariant: every file has a newline at the end *)
     document_name="test_file.txt";
     per_user = [
@@ -82,7 +82,7 @@ let state = {
 type view = { start: int } (* Should be the start of a physical line *)
 type terminal_size = { rows: int; cols: int }
 type local_state = { view: view; move_since_cut: bool; clipboard: string; uid: int option; terminal_size: terminal_size }
-let local_state = {
+let init_local_state = {
     uid = Some 0;
     view = { start=0 };
     move_since_cut = true;
@@ -265,8 +265,8 @@ let pos_of (text: string) (line: int) (col: int) : int =
     let max_line_num = (string_count text '\n') in
     col + nth_line text (clamp 0 max_line_num line) |> clamp 0 ((String.length text)-1) (* TODO: clamp col to the length of the line *)
 
-let page_lines = 10 (* TODO: Make depend on the terminal height *)
-let compute_actions state button = 
+let compute_actions state local_state button = 
+    let page_lines = 10 in (* TODO: Make depend on the terminal height *)
     let text = state.text in
     let pos = (List.nth state.per_user (Option.get local_state.uid)).cursor in (* TODO: Can throw *)
     let (physical_line, col) = line_of text pos in
@@ -418,14 +418,14 @@ let display (state: state) (local_state: local_state) : unit =
     - User keyboard input
 *)
 let client_main () : unit =
-    let local_state = ref local_state in
-    let state = ref state in
+    let local_state = ref init_local_state in
+    let state = ref init_state in
     while true do
         let keystroke = get_keystroke() in
             print_string (Printf.sprintf "\"%s\" || " (String.escaped keystroke));
         let button = get_button keystroke in
             string_of_button button |> print_string; print_string " || ";
-        let actions = compute_actions !state button in
+        let actions = compute_actions !state !local_state button in
             print_endline (join_with "" (List.map string_of_send_action actions));
             (*print_string "Local: "; print_endline (join_with "" (List.map string_of_send_action (local_only actions)));*)
         local_state := List.fold_left (apply_local_action !state) !local_state (local_only actions);

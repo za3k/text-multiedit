@@ -36,9 +36,9 @@ let tests = "test suite for pos_of" >::: [
    "t7" >:: (fun _ -> assert_equal (pos_of text 2 5) 7);
    "t8" >:: (fun _ -> assert_equal (pos_of text 2 6) 8);
 
-   "off top" >:: (fun _ -> assert_equal (pos_of text ~-3 2) 0);
-   "off left" >:: (fun _ -> assert_equal (pos_of text 0 ~-5) 0);
-   "off right" >:: (fun _ -> assert_equal (pos_of text 2 7) 8);
+   "off top"    >:: (fun _ -> assert_equal (pos_of text ~-3 2) 0);
+   "off left"   >:: (fun _ -> assert_equal (pos_of text 0 ~-5) 0);
+   "off right"  >:: (fun _ -> assert_equal (pos_of text 2 7) 8);
    "off bottom" >:: (fun _ -> assert_equal (pos_of text 3 6) 8);
 ]
 let _ = run_test_tt_main tests

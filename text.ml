@@ -294,10 +294,11 @@ let apply_remote_action (combined_state: state * local_state) (action: receive_a
     let (state, local_state) = combined_state in
     match action with
     | ReplaceText (ed_uid, start, length, replacement) ->
+        let text_length = String.length state.text in
         let user = List.nth state.per_user ed_uid in
         let pos = user.cursor + start in
+        let pos = min (max 0 pos) (text_length - 1) in
         let net_change = (String.length replacement) - length in
-        let text_length = String.length state.text in
         let new_text = (String.sub state.text 0 pos) ^ replacement ^ (String.sub state.text (pos + length) (text_length - pos - length)) in
         (*             state.text[0:pos]             + replacement + state.text[pos+length:] *)
         let new_users = List.mapi (fun (uid: int) (user: user_state) ->

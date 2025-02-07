@@ -17,6 +17,39 @@
         ASCII only
 *)
 
+(* TODO LIST
+    [ ] Make each shortcut work, one by one
+    [ ] Improve the display to look like the real thing
+
+    [ ] Deal with terminal resizing
+    [ ] Make the server stub fully realistic
+    [ ] Add the view
+        [ ] Add word wrap
+    [ ] Add keyboard locking/unlocking
+
+    | Left -> "<Left>"
+    | Right -> "<Right>"
+    | Del -> "<Del>"
+
+    | Backspace -> "<Backspace>"
+    | Cut -> "<Cut>"
+    | Down -> "<Down>"
+    | End -> "<End>"
+    | Exit -> "<Exit>"
+    | Help -> "<Help>"
+    | Home -> "<Home>"
+    | Justify -> "<Justify>"
+    | PageDown -> "<PageDown>"
+    | PageUp -> "<PageUp>"
+    | Paste -> "<Paste>"
+    | Save -> "<Save>"
+    | ScrollDown -> "<ScrollDown>"
+    | ScrollUp -> "<ScrollUp>"
+    | Tab -> "<Tab>"
+    | Up -> "<Up>"
+    | Key c -> Printf.sprintf "<Key '%s'>" (String.escaped (String.make 1 c))
+*)
+
 (* CLIENT LOGIC *)
 (* Setup:
     Parse command line. Set username, filename, and view-only flag.
@@ -47,14 +80,12 @@ let state = {
 }
 
 type view = { start: int } (* Should be the start of a physical line *)
-type local_position = { pos: int; physical_line: int; col: int } (* 0-indexed *)
 type terminal_size = { rows: int; cols: int }
-type local_state = { view: view; cursor_position: local_position; move_since_cut: bool; clipboard: string; user_id: int option; terminal_size: terminal_size }
+type local_state = { view: view; move_since_cut: bool; clipboard: string; uid: int option; terminal_size: terminal_size }
 let local_state = {
-    user_id = None;
+    uid = Some 0;
     view = { start=0 };
     move_since_cut = true;
-    cursor_position = { pos=2; physical_line=0; col=2 }; (* TODO: Remove this *)
     terminal_size = { rows=80; cols=25 };
     clipboard = "";
 }
@@ -192,10 +223,22 @@ let cut append_move clipboard text pos line_start line_end =
 
 (*
 pos = get_cursor state local_state.username
-local_state.cursor_position = calculate_cursor_position state.text pos
 *)
 
-let line_of text pos =
+(* type local_position = { pos: int; physical_line: int; col: int } (* 0-indexed *) *)
+
+let string_count s t =
+    String.fold_left (fun acc c -> if c = t then acc + 1 else acc) 0 s
+
+let nth_char s c n = 
+    (* [nth_char s c n] is the index of the n-th copy of [c] in [s].
+    Raises [Not_found] if there are less than [n] copies of [c] in [s]. *)
+    let rec helper s offset c = function
+        | 0 -> offset
+        | n -> helper s (String.index_from s offset c) c (n-1)
+    in helper s 0 c n
+
+let line_of (text : string) (pos : int) : int * int =
     (* [line_of text pos] is the line and column number of the [pos]-th byte in [text].
     All indices are from 0.*)
     let rec helper text offset pos lines =
@@ -204,29 +247,30 @@ let line_of text pos =
             | _ -> (lines, pos-offset)
     in helper text 0 (min (max 0 pos) ((String.length text)-1)) 0
 
-let string_count s c =
-    String.fold_left (fun acc c -> if c = '\n' then acc + 1 else acc) 0 s
-let nth_char s c n = 
-    (* [nth_char s c n] is the index of the n-th copy of [c] in [s].
-    Raises [Not_found] if there are less than [n] copies of [c] in [s]. *)
-    let rec helper s offset c = function
-        | 0 -> offset
-        | n -> helper s (String.index_from s offset c) c (n-1)
-    in helper s 0 c n
-let pos_of text line col =
+let line_for (text : string) (pos : int) : int * int =
+    (* [line_for text pos] is the start and end of the line containing the [pos]-th byte in [text]. *)
+    let (line_num, col) = line_of text pos in
+    let start = if line_num = 0 then 0 else (nth_char text '\n' (line_num-1)) in
+    let end_line = nth_char text '\n' (line_num+1) in
+    (start, end_line)
+
+let clamp (x1:int) (x2:int) (x:int) : int = min (max x x1) x2
+let pos_of (text: string) (line: int) (col: int) : int =
     (* [pos_of text line col] is the byte index of the [col]-th byte in the [line]-th line of [text].
     All indices are from 0.*)
-    col + nth_char text '\n' (min (max 0 line) (string_count text '\n'))
+    let max_line_num = (string_count text '\n') in
+    col + nth_char text '\n' (clamp 0 max_line_num line)
 
 let page_lines = 10 (* TODO: Make depend on the terminal height *)
 let compute_actions state button = 
     let text = state.text in
-    let {pos; physical_line; col} = local_state.cursor_position in
+    let pos = (List.nth state.per_user (Option.get local_state.uid)).cursor in (* TODO: Can throw *)
+    let (physical_line, col) = line_of text pos in
     let clipboard = local_state.clipboard in
     let move_since_cut = local_state.move_since_cut in
-    let (first, last) = line_of text pos in 
+    let (first, last) = line_for text pos in 
     let actions = match button with
-    | Backspace -> if pos > 0 then (delete (-1) 1) @ (move_cursor (-1)) else []
+    | Backspace -> if pos > 0 then delete (-1) 1 else []
     | Del -> delete 0 1
     | Cut -> cut (not move_since_cut) clipboard text pos first last
     | Down -> move_cursor ((pos_of text (physical_line+1) col)-pos)
@@ -296,8 +340,9 @@ let apply_remote_action (combined_state: state * local_state) (action: receive_a
     | ReplaceText (ed_uid, start, length, replacement) ->
         let text_length = String.length state.text in
         let user = List.nth state.per_user ed_uid in
-        let pos = user.cursor + start in
+        let pos = user.cursor + start in (* Clip removed part to bounds of the document *)
         let pos = min (max 0 pos) (text_length - 1) in
+        let length = min length (text_length - 1 - pos) in
         let net_change = (String.length replacement) - length in
         let new_text = (String.sub state.text 0 pos) ^ replacement ^ (String.sub state.text (pos + length) (text_length - pos - length)) in
         (*             state.text[0:pos]             + replacement + state.text[pos+length:] *)

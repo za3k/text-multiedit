@@ -227,16 +227,17 @@ pos = get_cursor state local_state.username
 
 (* type local_position = { pos: int; physical_line: int; col: int } (* 0-indexed *) *)
 
-let string_count s t =
-    String.fold_left (fun acc c -> if c = t then acc + 1 else acc) 0 s
+let string_count (s:string) (c: char) : int =
+    String.fold_left (fun acc x -> if x = c then acc + 1 else acc) 0 s
 
-let nth_char s c n = 
+let nth_char (s: string) (c: char) (n: int) : int = 
     (* [nth_char s c n] is the index of the n-th copy of [c] in [s].
     Raises [Not_found] if there are less than [n] copies of [c] in [s]. *)
     let rec helper (s: string) (offset: int) (c: char) : int->int = function
         | 0 -> offset
         | n -> helper s (String.index_from s offset c) c (n-1)
     in helper s 0 c n
+let nth_line s = nth_char s '\n'
 
 let line_of (text : string) (pos : int) : int * int =
     (* [line_of text pos] is the line and column number of the [pos]-th byte in [text].
@@ -250,8 +251,8 @@ let line_of (text : string) (pos : int) : int * int =
 let line_for (text : string) (pos : int) : int * int =
     (* [line_for text pos] is the start and end of the line containing the [pos]-th byte in [text]. *)
     let (line_num, col) = line_of text pos in
-    let start = if line_num = 0 then 0 else (nth_char text '\n' (line_num-1)) in
-    let end_line = nth_char text '\n' (line_num+1) in
+    let start = if line_num = 0 then 0 else (nth_line text (line_num-1)) in
+    let end_line = nth_line text (line_num+1) in
     (start, end_line)
 
 let clamp (x1:int) (x2:int) (x:int) : int = min (max x x1) x2
@@ -259,7 +260,7 @@ let pos_of (text: string) (line: int) (col: int) : int =
     (* [pos_of text line col] is the byte index of the [col]-th byte in the [line]-th line of [text].
     All indices are from 0.*)
     let max_line_num = (string_count text '\n') in
-    col + nth_char text '\n' (clamp 0 max_line_num line)
+    col + nth_line text (clamp 0 max_line_num line)
 
 let page_lines = 10 (* TODO: Make depend on the terminal height *)
 let compute_actions state button = 

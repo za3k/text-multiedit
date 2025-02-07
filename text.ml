@@ -48,12 +48,14 @@ let state = {
 
 type view = { start: int } (* Should be the start of a physical line *)
 type local_position = { pos: int; physical_line: int; col: int } (* 0-indexed *)
-type local_state = { view: view; cursor_position: local_position; move_since_cut: bool; clipboard: string; user_id: int option }
+type terminal_size = { rows: int; cols: int }
+type local_state = { view: view; cursor_position: local_position; move_since_cut: bool; clipboard: string; user_id: int option; terminal_size: terminal_size }
 let local_state = {
     user_id = None;
     view = { start=0 };
     move_since_cut = true;
     cursor_position = { pos=2; physical_line=0; col=2 }; (* TODO: Remove this *)
+    terminal_size = { rows=80; cols=25 };
     clipboard = "";
 }
 
@@ -264,6 +266,7 @@ type receive_action =
     | UserLeaves of int
     | UserJoins of user_state
     | SetUser of int
+    (* TODO: Lock and unlock user input *)
 let string_of_receive_action = function
     | ReplaceText (uid, a, b, s) -> Printf.sprintf "ReplaceText[u=%d,%d,%d,\"%s\"]" uid a b (String.escaped s)
     | UserLeaves uid -> Printf.sprintf "UserLeaves[u=%d]" uid
@@ -290,7 +293,28 @@ let apply_remote_action (combined_state: state * local_state) (action: receive_a
     (*print_endline (Printf.sprintf "ApplyingRemote: %s" (string_of_receive_action action));*)
     let (state, local_state) = combined_state in
     match action with
-    | ReplaceText (uid, start, length, replacement) -> (state, local_state)
+    | ReplaceText (ed_uid, start, length, replacement) ->
+        let user = List.nth state.per_user ed_uid in
+        let pos = user.cursor + start in
+        let net_change = (String.length replacement) - length in
+        let text_length = String.length state.text in
+        let new_text = (String.sub state.text 0 pos) ^ replacement ^ (String.sub state.text (pos + length) (text_length - pos - length)) in
+        (*             state.text[0:pos]             + replacement + state.text[pos+length:] *)
+        let new_users = List.mapi (fun (uid: int) (user: user_state) ->
+            if uid = ed_uid then { user with cursor = pos }
+            else if user.cursor <= pos then user
+            else { user with cursor = user.cursor + net_change }
+        ) state.per_user in
+        let state = { state with per_user = new_users; text = new_text } in
+        (* TODO: Update view *)
+        (state, local_state)
+        (* 
+            1. Change the text
+            2. Move the editor's cursor
+            3. Shift user cursors and view
+            4. Update view if the user's cursor is off screen
+               TODO: The view should be adjusted if the cursor is off screen, either here or elsewhere
+        *)
     | UserLeaves uid -> (state, local_state)
     | UserJoins user_state -> (state, local_state)
     | SetUser uid -> (state, local_state)

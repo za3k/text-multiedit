@@ -30,24 +30,28 @@ type background_color =
     | Black | Red | Green | Yellow | Blue | Magenta | Cyan | White 
     | BrightBlack | BrightRed | BrightGreen | BrightYellow | BrightBlue | BrightMagenta | BrightCyan | BrightWhite
     | Default
+let color_code (color: background_color) : string = match color with
+    | Default -> "0m"
+    | Black -> "40m" | Red -> "41m" | Green -> "42m" | Yellow -> "43m" | Blue -> "44m" | Magenta -> "45m" | Cyan -> "46m" | White -> "47m"
+    | BrightBlack -> "100m" | BrightRed -> "101m" | BrightGreen -> "102m" | BrightYellow -> "103m" | BrightBlue -> "104m" | BrightMagenta -> "105m" | BrightCyan -> "106m" | BrightWhite -> "107m"
+
 type user_state = { user: string; cursor: int; color: background_color; }
 type state = { text: string; document_name: string; per_user: user_state list }
 let state = {
-    text="Hello, world.\nThis is the second line.";
+    text="Hello, world.\nThis is the second line.\n"; (* Invariant: every file has a newline at the end *)
     document_name="test_file.txt";
     per_user = [
         { user="zachary"; cursor=2; color=Red;  };
-        { user="editor2"; cursor=5; color=Blue; };
+        { user="editor2"; cursor=13; color=Blue; };
     ]
 }
 
 type view = { start: int } (* Should be the start of a physical line *)
 type local_position = { pos: int; physical_line: int; col: int } (* 0-indexed *)
-type local_state = { view: view; cursor_position: local_position; move_since_cut: bool; view_only: bool; clipboard: string; user_id: int option }
+type local_state = { view: view; cursor_position: local_position; move_since_cut: bool; clipboard: string; user_id: int option }
 let local_state = {
     user_id = None;
     view = { start=0 };
-    view_only = false;
     move_since_cut = true;
     cursor_position = { pos=2; physical_line=0; col=2 }; (* TODO: Remove this *)
     clipboard = "";
@@ -250,7 +254,7 @@ let compute_actions state button =
 
 (* TODO: Implement *)
 let apply_local_action (state: state) (local_state: local_state) (action: send_action): local_state =
-    print_endline (Printf.sprintf "ApplyingLocal: %s" (string_of_send_action action));
+    (*print_endline (Printf.sprintf "ApplyingLocal: %s" (string_of_send_action action));*)
     local_state
 
 (* Step 5: Send the action to the server *)
@@ -277,14 +281,13 @@ let server_stub (uid : int option): (send_action -> receive_action list) = funct
 (* Step 7: Transform the state based on the action
     - Text
     - Cursor position (per-user)
-    - Undo/redo list (per-user)
-    - Clipboard (per-user)
+    - User list
     VIEW is not included in the state, but consists of a start position only, which is always at the beginning of a line.
 *)
 
 (* TODO: Implement *)
 let apply_remote_action (combined_state: state * local_state) (action: receive_action) : state * local_state = 
-    print_endline (Printf.sprintf "ApplyingRemote: %s" (string_of_receive_action action));
+    (*print_endline (Printf.sprintf "ApplyingRemote: %s" (string_of_receive_action action));*)
     let (state, local_state) = combined_state in
     match action with
     | ReplaceText (uid, start, length, replacement) -> (state, local_state)
@@ -299,9 +302,34 @@ let apply_remote_action (combined_state: state * local_state) (action: receive_a
     8d: Display the shortcuts
 *)
 
-(* TODO: Implement *)
+(* TODO: Implement actual version *)
+
+let rec any (l : 'a option list) : 'a option = match l with
+    | [] -> None
+    | Some x :: _ -> Some x
+    | None :: l -> any l
+
+let rec lookup_cursor_color (users: user_state list) (pos: int) : background_color option = 
+    (* { user="zachary"; cursor=2; color=Red;  }; *)
+    List.map (function x -> match x with
+        | { cursor; color } when cursor = pos -> Some color
+        | _ -> None
+    ) users |> any
+
+let colorize (s: string) (color: background_color) : string =
+    "\027[" ^ (color_code color) ^ s ^ "\027[0m"
+        
+let display_document (text: string) (color_of: int -> background_color option) : string =
+    List.mapi (fun (index: int) (c: char) -> let s = String.make 1 c in
+        let color = color_of index in
+        match color with
+            | Some color -> if c ='\n' then colorize " " color ^ "\n" else colorize s color
+            | None -> s
+    ) (text |> String.to_seq |> List.of_seq) |> String.concat ""
+
 let display (state: state) (local_state: local_state) : unit =
-    ()
+    let color_cursor = lookup_cursor_color state.per_user in
+    print_endline (display_document state.text color_cursor)
 
 (* [Go to step 1] *)
 (* Teardown:
@@ -324,11 +352,11 @@ let () = while true do
         string_of_button button |> print_string; print_string " || ";
     let actions = compute_actions !state button in
         print_endline (join_with "" (List.map string_of_send_action actions));
-        print_string "Local: "; print_endline (join_with "" (List.map string_of_send_action (local_only actions)));
+        (*print_string "Local: "; print_endline (join_with "" (List.map string_of_send_action (local_only actions)));*)
     local_state := List.fold_left (apply_local_action !state) !local_state (local_only actions);
-        print_string "Sent to server: "; print_endline (join_with "" (List.map string_of_send_action (remote_only actions)));
+        (*print_string "Sent to server: "; print_endline (join_with "" (List.map string_of_send_action (remote_only actions)));*)
     let msgs = List.concat (List.map (server_stub (Some 0)) (remote_only actions)) in
-        print_string "Received from server: "; print_endline (join_with "" (List.map string_of_receive_action msgs));
+        (*print_string "Received from server: "; print_endline (join_with "" (List.map string_of_receive_action msgs));*)
     let (s, ls) = List.fold_left apply_remote_action (!state, !local_state) msgs in
     state := s;
     local_state := ls;

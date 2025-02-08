@@ -255,8 +255,8 @@ let line_of (text : string) (pos : int) : int * int =
 let line_for (text : string) (pos : int) : int * int =
     (* [line_for text pos] is the start and end of the line containing the [pos]-th byte in [text]. *)
     let (line_num, col) = line_of text pos in
-    let start = if line_num = 0 then 0 else (nth_line_start text (line_num-1)) in
-    let end_line = nth_line_start text (line_num+1) in
+    let start = nth_line_start text line_num in
+    let end_line = ~-1 + nth_line_start text (line_num+1) in
     (start, end_line)
 
 let pos_of (text: string) (line: int) (col: int) : int =
@@ -275,9 +275,9 @@ let pos_of (text: string) (line: int) (col: int) : int =
             line_start + clamp 0 line_length col
 
 let compute_actions state local_state button = 
-    let page_lines = 10 in (* TODO: Make depend on the terminal height *)
+    let page_lines = local_state.terminal_size.rows in
     let text = state.text in
-    let pos = (List.nth state.per_user (Option.get local_state.uid)).cursor in (* TODO: Can throw *)
+    let pos = (List.nth state.per_user (Option.get local_state.uid)).cursor in (* Option.get should never throw *)
     let (physical_line, col) = line_of text pos in
     let clipboard = local_state.clipboard in
     let move_since_cut = local_state.move_since_cut in

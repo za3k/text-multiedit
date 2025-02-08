@@ -5,12 +5,6 @@
     User Color Guide (shown at bottom)
     Shortcuts (shown at bottom)
 
-    Actions
-        Insert text at position X
-        Delete text at position X
-        Move cursor to position X
-        Cut at position X
-
     Limitations:
         Undo/redo not supported in v1 (may require semantic actions)
         Explicit save required
@@ -21,29 +15,27 @@
     [ ] Make each shortcut work, one by one
         [ ] Make sure stuff works on an empty document
         [ ] Make sure stuff works with empty lines
-        | Cut -> "<Cut>"
-        | Cut -> "<Paste>"
-
-        | PageDown -> "<PageDown>"
-        | PageUp -> "<PageUp>"
-
-        | Exit -> "<Exit>"
-
-        | ScrollDown -> "<ScrollDown>"
-        | ScrollUp -> "<ScrollUp>"
     [ ] Improve the display to look like the real thing
-
-    [ ] Deal with terminal resizing
+        [ ] Add a help line
+        [ ] Add the lost of user
+        [ ] Clean the screen on each update
+        [ ] Reset the screen on_exit
+    [ ] Deal with terminal resizing 
     [ ] Make the server stub fully realistic
+        [ ] Add document setup
+        [ ] Add file load+save
+        [ ] Add message queues for each user
     [ ] Add the view
-        [ ] Add word wrap
+        [ ] Make the view move with the user cursor
+        [ ] Make the view shift on inserts/deletes
+        [ ] Add word wrap: min(80, term-width)
+        [ ] Add ScrollDown/ScrollUp
     [ ] Add keyboard locking/unlocking
-
 *)
 
 (* CLIENT LOGIC *)
 (* Setup:
-    Parse command line. Set username, filename, and view-only flag.
+    Parse command line. Set username, filename.
     Set up initial data structures.
     Connect to the server via a unix socket, /tmp/ocaml-text
     Send "Open <document> as <name> [, view-only please]" to the server.
@@ -78,7 +70,7 @@ let init_local_state = {
     view = { start=0 };
     move_since_cut = true;
     terminal_size = { rows=80; cols=25 };
-    clipboard = "test clipboard";
+    clipboard = "";
 }
 
 let join_with sep = function
@@ -146,7 +138,7 @@ let shortcuts = [
     (["\027[B"], None, None, Down);
     (["\027[4~"; "\027[F"], None, None, End);
     (["\r"], None, None, Key '\n'); (* Enter *)
-    (["\024"; "\022"], Some "C-x", Some "Exit", Exit); (* Ctrl-X or Ctrl-C *)
+    (["\024"; "\022"], Some "C-x", Some "Exit", Exit); (* Ctrl-X or Ctrl-C. Note that Ctrl-C just exits with SIGINT currently. *)
     (["\007"], Some "C-g", Some "Help", Help); (* Ctrl-G because Ctrl-H is backspace *)
     (["\027[1~"; "\027[H"], None, None, Home);
     (["\n"], Some "C-j", Some "Justify", Justify); (* Requires ~ICRNL terminal setting to tell apart from enter *)
@@ -204,20 +196,57 @@ let insert offset str = [ReplaceText (offset, 0, str)]
 let delete offset len = [ReplaceText (offset, len, "")]
 let move_cursor offset = [ReplaceText (offset, 0, "")]
 let cut append_move clipboard text pos line_start line_end = 
-    let new_text = String.sub text line_start (line_end-line_start) in
+    let new_text = String.sub text line_start (line_end-line_start+1) in
     let clipboard = if append_move then clipboard ^ new_text else new_text in
     [
         CopyText clipboard;
-        ReplaceText (line_start-pos, line_end-line_start, "");
+        ReplaceText (line_start-pos, line_end-line_start+1, "");
         CutFlag true
     ]
 
-
-(*
-pos = get_cursor state local_state.username
+(* Helper functions to convert between two views of a document.
+*
+* A document is an immutable string. All documents end in a newline (and therefore are at least 1 character long).
+* 
+* Cursors always point at a character, never between characters. Cursors can validly point at any character in the document, including newlines. They cannot go past the beginning/end character in a document.
+* 
+* Example (newlines written as 'N')
+* 
+*     ==POS view==
+*     0 0123456789
+*     1           012345
+*      "Line 0NLine 1NNN"
+*         ^          ^^^
+* 
+*     ==LINE/COL view==
+*     Line 0N
+*       ^     This is line 0, col 2 == pos 2
+*     Line 1N
+*           ^ This is line 1, col 6 == pos 13
+*     N
+*     ^       This is line 2, col 0 == pos 14
+*     N
+*     ^       This is line 3, col 0 == pos 15
+* 
+* The two views are:
+* 
+*  - the POS view
+*     - POS counts characters from start of document.
+*     - POS 0 is the first character in the document.
+*  - the LINE/COL view 
+*     - LINE/COL view is based on "logical" lines within the document based only on newline characters. It doesn't depend on word wrap, terminal size, or window position.
+*     - LINE 0 is the first line in a document, and LINE 0, COL 0 is the first character in a document.
+*     - The newline is considered the last character in each line. Remember that the last line in a document also ends in a newline.
+*     - LINE N, COL M is the same as POS(Nth newline position + M+1 more chars)
+* 
+* POS should always be between 0 and LEN-1 (inclusive) -- 0 to 15 in the example
+* POS functions accept values outside this range but clip them. Returned values will be in this range.
+*     Exception: For convenience, [nth_line_start NEWLINES] returns [LEN], which is not a valid input LINE or a valid output POS
+* 
+* LINE should be between 0 and NEWLINES-1 (inclusive) -- 0 to 3 in the example
+* COL should be between 0 and the length of the line (excluding any newline before the line, including the one at the end of the line). In example line 1, COL could range from 0 to 6.
+* LINE/COL functions accept values outside these ranges and clip them. Returned values will be in these ranges.
 *)
-
-(* type local_position = { pos: int; physical_line: int; col: int } (* 0-indexed *) *)
 
 let string_count (s:string) (c: char) : int =
     String.fold_left (fun acc x -> if x = c then acc + 1 else acc) 0 s
@@ -231,7 +260,8 @@ let nth_char (c: char) (s: string) (n: int) : int =
         | n -> helper c s (String.index_from s (offset+1) c) (n-1)
     in helper c s 0 n
 let nth_newline = nth_char '\n'
-let nth_line_start s n = if n = 0 then 0 else 1 + nth_newline s n
+(* [nth_line_start] happily accepts one line past the end of the document, and returns an index one past the end of the document. *)
+let nth_line_start s n = if n = 0 then 0 else 1 + nth_newline s n 
 
 let line_of (text : string) (pos : int) : int * int =
     (* [line_of text pos] is the line and column number of the [pos]-th byte in [text].
@@ -239,7 +269,7 @@ let line_of (text : string) (pos : int) : int * int =
     let rec helper (text: string) (pos: int) (lines_before_offset: int) (offset: int)=
         (* Invariant: offset is first character after a newline OR first char in file *)
         match String.index_from_opt text offset '\n' with
-            | Some i when i < pos -> helper text pos (lines_before_offset+1) (i+1)
+            | Some i when i <= pos -> helper text pos (lines_before_offset+1) (i+1)
             | _ -> (lines_before_offset, pos-offset)
     in helper text (clamp 0 ((String.length text)-1) pos) 0 0
 
@@ -302,10 +332,13 @@ let compute_actions state local_state button =
 
 (* Step 4: Apply local state changes *)
 
-(* TODO: Implement *)
-let apply_local_action (state: state) (local_state: local_state) (action: send_action): local_state =
+let apply_local_action (state: state) (local_state: local_state): send_action -> local_state = function
     (*print_endline (Printf.sprintf "ApplyingLocal: %s" (string_of_send_action action));*)
-    local_state
+    | CopyText s -> { local_state with clipboard = s }
+    | CutFlag b -> { local_state with move_since_cut = not b }
+    | DisplayError s -> local_state (* TODO *)
+    | Exit -> exit 0
+    | _ -> local_state
 
 (* Step 5: Send the action to the server *)
 (* Step 6: Receive an action from the server *)
@@ -336,7 +369,6 @@ let server_stub (uid : int option): (send_action -> receive_action list) = funct
     VIEW is not included in the state, but consists of a start position only, which is always at the beginning of a line.
 *)
 
-(* TODO: Implement *)
 let apply_remote_action (combined_state: state * local_state) (action: receive_action) : state * local_state = 
     (*print_endline (Printf.sprintf "ApplyingRemote: %s" (string_of_receive_action action));*)
     let (state, local_state) = combined_state in
@@ -361,10 +393,11 @@ let apply_remote_action (combined_state: state * local_state) (action: receive_a
         (* 
             1. Change the text
             2. Move the editor's cursor
-            3. Shift user cursors and view
+            3. Shift view
             4. Update view if the user's cursor is off screen
                TODO: The view should be adjusted if the cursor is off screen, either here or elsewhere
         *)
+(* TODO: Implement *)
     | UserLeaves uid -> (state, local_state)
     | UserJoins user_state -> (state, local_state)
     | SetUser uid -> (state, local_state)
@@ -417,9 +450,20 @@ let display (state: state) (local_state: local_state) : unit =
     - Terminal resize events (SIGWINCH)
     - User keyboard input
 *)
+
+
 let client_main () : unit =
+    (* Terminal stuff for start/exit *)
+    let reset () : unit = print_string "\027[?1049l" in (* Save terminal, home the cursor *)
+    at_exit reset;
+    print_string "\027[?1049h\027[H"; (* Restore the terminal *)
+    Sys.set_signal Sys.sigint (Signal_handle (function | _ -> exit 0));
+
+    (* Setup of the client *)
     let local_state = ref init_local_state in
     let state = ref init_state in
+
+    (* Main loop of the client *)
     while true do
         let keystroke = get_keystroke() in
             print_string (Printf.sprintf "\"%s\" || " (String.escaped keystroke));

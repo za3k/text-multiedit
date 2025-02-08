@@ -269,7 +269,7 @@ let line_of (text : string) (pos : int) : int * int =
     let rec helper (text: string) (pos: int) (lines_before_offset: int) (offset: int)=
         (* Invariant: offset is first character after a newline OR first char in file *)
         match String.index_from_opt text offset '\n' with
-            | Some i when i <= pos -> helper text pos (lines_before_offset+1) (i+1)
+            | Some i when i < pos -> helper text pos (lines_before_offset+1) (i+1)
             | _ -> (lines_before_offset, pos-offset)
     in helper text (clamp 0 ((String.length text)-1) pos) 0 0
 

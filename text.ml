@@ -239,7 +239,8 @@ let nth_char (c: char) (s: string) (n: int) : int =
         | 0 -> offset
         | n -> helper c s (String.index_from s (offset+1) c) (n-1)
     in helper c s 0 n
-let nth_line = nth_char '\n'
+let nth_newline = nth_char '\n'
+let nth_line_start s n = if n = 0 then 0 else 1 + nth_newline s n
 
 let line_of (text : string) (pos : int) : int * int =
     (* [line_of text pos] is the line and column number of the [pos]-th byte in [text].
@@ -254,8 +255,8 @@ let line_of (text : string) (pos : int) : int * int =
 let line_for (text : string) (pos : int) : int * int =
     (* [line_for text pos] is the start and end of the line containing the [pos]-th byte in [text]. *)
     let (line_num, col) = line_of text pos in
-    let start = if line_num = 0 then 0 else (nth_line text (line_num-1)) in
-    let end_line = nth_line text (line_num+1) in
+    let start = if line_num = 0 then 0 else (nth_line_start text (line_num-1)) in
+    let end_line = nth_line_start text (line_num+1) in
     (start, end_line)
 
 let pos_of (text: string) (line: int) (col: int) : int =
@@ -263,8 +264,7 @@ let pos_of (text: string) (line: int) (col: int) : int =
     All indices are from 0.*)
     if line < 0 then 0 else
     let max_line_num = (string_count text '\n') in
-    let ans = col + nth_line text (clamp 0 max_line_num line) |> clamp 0 ((String.length text)-1) in (* TODO: clamp col to the length of the line *)
-    Printf.sprintf "POS(%d %d => %d)" line col ans |> print_string; ans
+    col + nth_line_start text (clamp 0 max_line_num line) |> clamp 0 ((String.length text)-1) (* TODO: clamp col to the length of the line *)
 
 let compute_actions state local_state button = 
     let page_lines = 10 in (* TODO: Make depend on the terminal height *)

@@ -22,6 +22,7 @@
         [ ] Add an error message display
         [ ] Clean the screen on each update
         [ ] Reset the screen on_exit
+    [ ] Deal with terminal resizing 
     [ ] Make the server stub fully realistic
         [ ] Add document setup
         [ ] Add file load+save
@@ -31,9 +32,7 @@
         [ ] Make the view shift on inserts/deletes
         [ ] Add word wrap: min(80, term-width)
         [ ] Add ScrollDown/ScrollUp
-    [ ] Add networking (real client/server)
-        [ ] Listen to first of (network, keyboard, SIGWINCH)
-        [ ] Add keyboard locking/unlocking, Don't listen to keyboard while locked
+    [ ] Add keyboard locking/unlocking
 *)
 
 (* CLIENT LOGIC *)
@@ -78,8 +77,11 @@ let init_local_state = {
     error = None;
 }
 
+let join_with sep = function
+    | [] -> ""
+    | first :: l -> List.fold_left (fun s1 s2 -> (Printf.sprintf "%s%s%s" s1 sep s2)) first l
+let join_with_spaces = join_with " "
 let clamp (x1:int) (x2:int) (x:int) : int = min (max x x1) x2
-let remove1 (i: int) : 'a list -> 'a list = List.filteri (fun j x -> j <> i)
 
 (* Step 1: Read a keystroke *)
 let get_keystroke char_reader =
@@ -184,7 +186,7 @@ type send_action =
 let is_local = function
     | CopyText _ | CutFlag _ | DisplayError _ | Exit -> true
     | _ -> false
-let is_remote = Fun.compose not is_local
+let is_remote = function x -> not (is_local x)
 let local_only = List.filter is_local
 let remote_only = List.filter is_remote
 let string_of_send_action = function
@@ -388,13 +390,6 @@ let apply_remote_action (combined_state: state * local_state) (action: receive_a
     let (state, local_state) = combined_state in
     match action with
     | ReplaceText (ed_uid, start, length, replacement) ->
-        (* 
-            1. Change the text
-            2. Move the editor's cursor
-            3. Shift view
-            4. Update view if the user's cursor is off screen
-               TODO: The view should be adjusted if the cursor is off screen, either here or elsewhere
-        *)
         let text_length = String.length state.text in
         let user = List.nth state.per_user ed_uid in
         let pos = user.cursor + start in (* Clip removed part to bounds of the document *)
@@ -409,14 +404,20 @@ let apply_remote_action (combined_state: state * local_state) (action: receive_a
             else { user with cursor = user.cursor + net_change }
         ) state.per_user in
         let state = { state with per_user = new_users; text = new_text } in
-        (* TODO: Shift view *)
-        (* TODO: Update view if cursor is off screen *)
+        (* TODO: Update view *)
         (state, local_state)
-    | UserJoins user_state -> ({state with per_user = state.per_user @ [user_state]}, local_state)
-    | UserLeaves uid -> ({state with per_user = remove1 uid state.per_user}, local_state)
-
-    | SetUser uid -> (state, {local_state with uid=local_state.uid})
+        (* 
+            1. Change the text
+            2. Move the editor's cursor
+            3. Shift view
+            4. Update view if the user's cursor is off screen
+               TODO: The view should be adjusted if the cursor is off screen, either here or elsewhere
+        *)
     | Unlock -> (state, { local_state with locked = false })
+(* TODO: Implement *)
+    | UserLeaves uid -> (state, local_state)
+    | UserJoins user_state -> (state, local_state)
+    | SetUser uid -> (state, local_state)
 
 (* Step 8: Update the UI
     8a: Calculate the view, based on the last view, the current terminal size, and the cursor position.
@@ -484,12 +485,12 @@ let client_main () : unit =
         let button = get_button keystroke in
             string_of_button button |> print_string; print_string " || ";
         let actions = compute_actions !state !local_state button in
-            print_endline (String.concat "" (List.map string_of_send_action actions));
-            (*print_string "Local: "; print_endline (String.concat "" (List.map string_of_send_action (local_only actions)));*)
+            print_endline (join_with "" (List.map string_of_send_action actions));
+            (*print_string "Local: "; print_endline (join_with "" (List.map string_of_send_action (local_only actions)));*)
         local_state := List.fold_left (apply_local_action !state) !local_state (local_only actions);
-            (*print_string "Sent to server: "; print_endline (String.concat "" (List.map string_of_send_action (remote_only actions)));*)
+            (*print_string "Sent to server: "; print_endline (join_with "" (List.map string_of_send_action (remote_only actions)));*)
         let msgs = server_stub !local_state.uid (remote_only actions) in
-            (*print_string "Received from server: "; print_endline (String.concat "" (List.map string_of_receive_action msgs));*)
+            print_string "Received from server: "; print_endline (join_with "" (List.map string_of_receive_action msgs));
         let (s, ls) = List.fold_left apply_remote_action (!state, !local_state) msgs in
         state := s;
         local_state := ls;

@@ -12,9 +12,10 @@
 *)
 
 (* TODO LIST
-    [ ] Make each shortcut work, one by one
-        [ ] Make sure stuff works on an empty document
-        [ ] Make sure stuff works with empty lines
+    [x] Make each shortcut work, one by one
+        [x] Make sure stuff works on an empty document
+        [x] Make sure stuff works with empty lines
+        [x] Make sure stuff works on "\n\n" document
     [ ] Improve the display to look like the real thing
         [ ] Add a help line
         [ ] Add the lost of user
@@ -234,7 +235,7 @@ let cut append_move clipboard text pos line_start line_end =
 *     - POS counts characters from start of document.
 *     - POS 0 is the first character in the document.
 *  - the LINE/COL view 
-*     - LINE/COL view is based on "logical" lines within the document based only on newline characters. It doesn't depend on word wrap, terminal size, or window position.
+*     - LINE/COL view is based on "physical" lines within the document based only on newline characters. It doesn't depend on word wrap, terminal size, or viewport position.
 *     - LINE 0 is the first line in a document, and LINE 0, COL 0 is the first character in a document.
 *     - The newline is considered the last character in each line. Remember that the last line in a document also ends in a newline.
 *     - LINE N, COL M is the same as POS(Nth newline position + M+1 more chars)
@@ -254,14 +255,16 @@ let string_count (s:string) (c: char) : int =
 let nth_char (c: char) (s: string) (n: int) : int = 
     (* [nth_char s c n] is the index of the n-th copy of [c] in [s].
     Raises [Not_found] if there are less than [n] copies of [c] in [s]. *)
-    if n < 0 then 0 else
+    if n <= 0 then 0 else
     let rec helper (c: char) (s: string) (offset: int) : int->int = function
         | 0 -> offset
         | n -> helper c s (String.index_from s (offset+1) c) (n-1)
-    in helper c s 0 n
+    in helper c s ~-1 n
 let nth_newline = nth_char '\n'
 (* [nth_line_start] happily accepts one line past the end of the document, and returns an index one past the end of the document. *)
-let nth_line_start s n = if n = 0 then 0 else 1 + nth_newline s n 
+let nth_line_start s n = 
+    if n = 0 || (n = 1 && s = "\n") then 0
+    else 1 + nth_newline s n 
 
 let line_of (text : string) (pos : int) : int * int =
     (* [line_of text pos] is the line and column number of the [pos]-th byte in [text].
@@ -283,17 +286,15 @@ let line_for (text : string) (pos : int) : int * int =
 let pos_of (text: string) (line: int) (col: int) : int =
     (* [pos_of text line col] is the byte index of the [col]-th byte in the [line]-th line of [text].
     All indices are from 0.*)
-    let max_line_num = (string_count text '\n') in 
+    let max_line_num = (string_count text '\n')-1 in 
     match line with
         | n when n<0 -> 0
         | n when n>max_line_num -> (String.length text)-1
         | _ ->
             let line_start = nth_line_start text line in
-            let next_line_start =
-                if max_line_num = line then String.length text
-                else String.index_from text (line_start+1) '\n' in
+            let next_line_start = nth_line_start text (line+1) in
             let line_length = next_line_start-line_start in (* includes trailing newline *)
-            line_start + clamp 0 line_length col
+            line_start + clamp 0 (line_length-1) col
 
 let compute_actions state local_state button = 
     let page_lines = local_state.terminal_size.rows in
@@ -316,7 +317,7 @@ let compute_actions state local_state button =
     | Exit -> [Exit]
     | Help -> [] (* TODO *)
     | Justify -> [] (* TODO *)
-    | Left -> move_cursor (-1)
+    | Left ->  move_cursor (-1)
     | Right -> move_cursor 1
     | Paste -> insert 0 clipboard
     | Save -> [Save]
@@ -454,10 +455,10 @@ let display (state: state) (local_state: local_state) : unit =
 
 let client_main () : unit =
     (* Terminal stuff for start/exit *)
-    let reset () : unit = print_string "\027[?1049l" in (* Save terminal, home the cursor *)
+    (*let reset () : unit = print_string "\027[?1049l" in (* Save terminal, home the cursor *)
     at_exit reset;
     print_string "\027[?1049h\027[H"; (* Restore the terminal *)
-    Sys.set_signal Sys.sigint (Signal_handle (function | _ -> exit 0));
+    Sys.set_signal Sys.sigint (Signal_handle (function | _ -> exit 0));*)
 
     (* Setup of the client *)
     let local_state = ref init_local_state in

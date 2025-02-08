@@ -26,18 +26,21 @@
     [ ] Add the view
         [ ] Add word wrap
     [ ] Add keyboard locking/unlocking
+    [ ] Make sure stuff works on an empty document
 
     | Left -> "<Left>"
     | Right -> "<Right>"
     | Del -> "<Del>"
-
-    | Backspace -> "<Backspace>"
-    | Cut -> "<Cut>"
+    | Up -> "<Up>"
     | Down -> "<Down>"
+    | Home -> "<Home>"
     | End -> "<End>"
+    | Backspace -> "<Backspace>"
+    | Key c -> Printf.sprintf "<Key '%s'>" (String.escaped (String.make 1 c))
+
+    | Cut -> "<Cut>"
     | Exit -> "<Exit>"
     | Help -> "<Help>"
-    | Home -> "<Home>"
     | Justify -> "<Justify>"
     | PageDown -> "<PageDown>"
     | PageUp -> "<PageUp>"
@@ -46,8 +49,6 @@
     | ScrollDown -> "<ScrollDown>"
     | ScrollUp -> "<ScrollUp>"
     | Tab -> "<Tab>"
-    | Up -> "<Up>"
-    | Key c -> Printf.sprintf "<Key '%s'>" (String.escaped (String.make 1 c))
 *)
 
 (* CLIENT LOGIC *)
@@ -302,7 +303,7 @@ let compute_actions state local_state button =
     | ScrollDown -> [] (* TODO: Affect the view, not the cursor *)
     | ScrollUp -> []
     | Tab -> insert 0 "    "
-    | Key c -> insert 0 (String.make 1 c)
+    | Key c -> insert 0 (String.make 1 c) @ move_cursor 1
     | Unknown s -> [DisplayError (Printf.sprintf "Unknown key pressed: %s" s)]
     in let actions = actions @ match button with
     | Cut -> []

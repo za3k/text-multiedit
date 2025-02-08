@@ -19,6 +19,17 @@
 
 (* TODO LIST
     [ ] Make each shortcut work, one by one
+        [ ] Make sure stuff works on an empty document
+        [ ] Make sure stuff works with empty lines
+        | Cut -> "<Cut>"
+
+        | PageDown -> "<PageDown>"
+        | PageUp -> "<PageUp>"
+
+        | Exit -> "<Exit>"
+
+        | ScrollDown -> "<ScrollDown>"
+        | ScrollUp -> "<ScrollUp>"
     [ ] Improve the display to look like the real thing
 
     [ ] Deal with terminal resizing
@@ -26,29 +37,7 @@
     [ ] Add the view
         [ ] Add word wrap
     [ ] Add keyboard locking/unlocking
-    [ ] Make sure stuff works on an empty document
 
-    | Left -> "<Left>"
-    | Right -> "<Right>"
-    | Del -> "<Del>"
-    | Up -> "<Up>"
-    | Down -> "<Down>"
-    | Home -> "<Home>"
-    | End -> "<End>"
-    | Backspace -> "<Backspace>"
-    | Key c -> Printf.sprintf "<Key '%s'>" (String.escaped (String.make 1 c))
-
-    | Cut -> "<Cut>"
-    | Exit -> "<Exit>"
-    | Help -> "<Help>"
-    | Justify -> "<Justify>"
-    | PageDown -> "<PageDown>"
-    | PageUp -> "<PageUp>"
-    | Paste -> "<Paste>"
-    | Save -> "<Save>"
-    | ScrollDown -> "<ScrollDown>"
-    | ScrollUp -> "<ScrollUp>"
-    | Tab -> "<Tab>"
 *)
 
 (* CLIENT LOGIC *)
@@ -88,7 +77,7 @@ let init_local_state = {
     view = { start=0 };
     move_since_cut = true;
     terminal_size = { rows=80; cols=25 };
-    clipboard = "";
+    clipboard = "test clipboard";
 }
 
 let join_with sep = function
@@ -302,7 +291,7 @@ let compute_actions state local_state button =
     | Save -> [Save]
     | ScrollDown -> [] (* TODO: Affect the view, not the cursor *)
     | ScrollUp -> []
-    | Tab -> insert 0 "    "
+    | Tab -> insert 0 "    " @ move_cursor 4
     | Key c -> insert 0 (String.make 1 c) @ move_cursor 1
     | Unknown s -> [DisplayError (Printf.sprintf "Unknown key pressed: %s" s)]
     in let actions = actions @ match button with

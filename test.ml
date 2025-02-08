@@ -8,7 +8,7 @@ let pos_of (text: string) (line: int) (col: int) : int =
 
 let text = "14\nThis is the first line\nThis is the second line\nThis is the third line\n"
 let text = "01\n34\n67\n"
-let tests = "test suite for line_of" >::: [
+let tests1 = "test suite for line_of" >::: [
    "t0" >:: (fun _ -> assert_equal (line_of text 0) (0, 0));
    "t1" >:: (fun _ -> assert_equal (line_of text 1) (0, 1));
    "t2" >:: (fun _ -> assert_equal (line_of text 2) (0, 2));
@@ -23,24 +23,25 @@ let tests = "test suite for line_of" >::: [
    "off right" >:: (fun _ -> assert_equal (line_of text 9) (2, 2));
 ]
 
-let _ = run_test_tt_main tests
 
-let tests = "test suite for pos_of" >::: [
+let tests2 = "test suite for pos_of" >::: [
    "t0" >:: (fun _ -> assert_equal (pos_of text 0 0) 0);
    "t1" >:: (fun _ -> assert_equal (pos_of text 0 1) 1);
    "t2" >:: (fun _ -> assert_equal (pos_of text 0 2) 2);
-   "t3" >:: (fun _ -> assert_equal (pos_of text 1 1) 3);
-   "t4" >:: (fun _ -> assert_equal (pos_of text 1 2) 4);
-   "t5" >:: (fun _ -> assert_equal (pos_of text 1 3) 5);
-   "t6" >:: (fun _ -> assert_equal (pos_of text 2 4) 6);
-   "t7" >:: (fun _ -> assert_equal (pos_of text 2 5) 7);
-   "t8" >:: (fun _ -> assert_equal (pos_of text 2 6) 8);
+   "t3" >:: (fun _ -> assert_equal (pos_of text 1 0) 3);
+   "t4" >:: (fun _ -> assert_equal (pos_of text 1 1) 4);
+   "t5" >:: (fun _ -> assert_equal (pos_of text 1 2) 5);
+   "t6" >:: (fun _ -> assert_equal (pos_of text 2 0) 6);
+   "t7" >:: (fun _ -> assert_equal (pos_of text 2 1) 7);
+   "t8" >:: (fun _ -> assert_equal (pos_of text 2 2) 8);
 
-   "off top"    >:: (fun _ -> assert_equal (pos_of text ~-3 2) 0);
-   "off left"   >:: (fun _ -> assert_equal (pos_of text 0 ~-5) 0);
-   "off right"  >:: (fun _ -> assert_equal (pos_of text 2 7) 8);
+   "off top" >:: (fun _ -> assert_equal (pos_of text ~-3 2) 0);
+   "off left" >:: (fun _ -> assert_equal (pos_of text 0 ~-5) 0);
+   "off right" >:: (fun _ -> assert_equal (pos_of text 2 7) 8);
    "off bottom" >:: (fun _ -> assert_equal (pos_of text 3 6) 8);
 ]
-let _ = run_test_tt_main tests
+
+let _ = run_test_tt_main tests1
+let _ = run_test_tt_main tests2
 
 

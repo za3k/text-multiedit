@@ -237,7 +237,7 @@ let nth_char (c: char) (s: string) (n: int) : int =
     if n < 0 then 0 else
     let rec helper (c: char) (s: string) (offset: int) : int->int = function
         | 0 -> offset
-        | n -> helper c s (String.index_from s offset c) (n-1)
+        | n -> helper c s (String.index_from s (offset+1) c) (n-1)
     in helper c s 0 n
 let nth_line = nth_char '\n'
 

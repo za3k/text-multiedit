@@ -22,6 +22,7 @@
         [ ] Make sure stuff works on an empty document
         [ ] Make sure stuff works with empty lines
         | Cut -> "<Cut>"
+        | Cut -> "<Paste>"
 
         | PageDown -> "<PageDown>"
         | PageUp -> "<PageUp>"
@@ -291,8 +292,8 @@ let compute_actions state local_state button =
     | Save -> [Save]
     | ScrollDown -> [] (* TODO: Affect the view, not the cursor *)
     | ScrollUp -> []
-    | Tab -> insert 0 "    " @ move_cursor 4
-    | Key c -> insert 0 (String.make 1 c) @ move_cursor 1
+    | Tab -> insert 0 "    "
+    | Key c -> insert 0 (String.make 1 c)
     | Unknown s -> [DisplayError (Printf.sprintf "Unknown key pressed: %s" s)]
     in let actions = actions @ match button with
     | Cut -> []
@@ -350,7 +351,7 @@ let apply_remote_action (combined_state: state * local_state) (action: receive_a
         let new_text = (String.sub state.text 0 pos) ^ replacement ^ (String.sub state.text (pos + length) (text_length - pos - length)) in
         (*             state.text[0:pos]             + replacement + state.text[pos+length:] *)
         let new_users = List.mapi (fun (uid: int) (user: user_state) ->
-            if uid = ed_uid then { user with cursor = pos }
+            if uid = ed_uid then { user with cursor = pos + (String.length replacement) }
             else if user.cursor <= pos then user
             else { user with cursor = user.cursor + net_change }
         ) state.per_user in

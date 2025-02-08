@@ -262,9 +262,17 @@ let line_for (text : string) (pos : int) : int * int =
 let pos_of (text: string) (line: int) (col: int) : int =
     (* [pos_of text line col] is the byte index of the [col]-th byte in the [line]-th line of [text].
     All indices are from 0.*)
-    if line < 0 then 0 else
-    let max_line_num = (string_count text '\n') in
-    col + nth_line_start text (clamp 0 max_line_num line) |> clamp 0 ((String.length text)-1) (* TODO: clamp col to the length of the line *)
+    let max_line_num = (string_count text '\n') in 
+    match line with
+        | n when n<0 -> 0
+        | n when n>max_line_num -> (String.length text)-1
+        | _ ->
+            let line_start = nth_line_start text line in
+            let next_line_start =
+                if max_line_num = line then String.length text
+                else String.index_from text (line_start+1) '\n' in
+            let line_length = next_line_start-line_start in (* includes trailing newline *)
+            line_start + clamp 0 line_length col
 
 let compute_actions state local_state button = 
     let page_lines = 10 in (* TODO: Make depend on the terminal height *)

@@ -16,6 +16,7 @@
         [x] Make sure stuff works on an empty document
         [x] Make sure stuff works with empty lines
         [x] Make sure stuff works on "\n\n" document
+        [ ] Up/down should remember the "imaginary" column off the right end the cursor is on until the user types or presses left/right
     [ ] Improve the display to look like the real thing
         [ ] Add a help line
         [ ] Add the line of users
@@ -26,7 +27,7 @@
         [ ] Add document setup
         [ ] Add file load+save
         [ ] Add message queues for each user
-    [ ] Add the view
+    [ ] Add the view [IN PROGRESS]
         [ ] Make the view move with the user cursor
         [ ] Make the view shift on inserts/deletes
         [ ] Add word wrap: min(80, term-width)
@@ -65,12 +66,12 @@ let init_state = {
     ]
 }
 
-type view = { start: int } (* Should be the start of a physical line *)
+type view = int (* Should be the start of a s-line after any view adjustment *)
 type terminal_size = { rows: int; cols: int }
 type local_state = { view: view; move_since_cut: bool; clipboard: string; uid: int option; terminal_size: terminal_size; error: string option; locked: bool }
 let init_local_state = {
     uid = Some 0;
-    view = { start=0 };
+    view = 0;
     move_since_cut = true;
     terminal_size = { rows=80; cols=25 };
     clipboard = "";
@@ -80,6 +81,8 @@ let init_local_state = {
 
 let clamp (x1:int) (x2:int) (x:int) : int = min (max x x1) x2
 let remove1 (i: int) : 'a list -> 'a list = List.filteri (fun j x -> j <> i)
+let get_cursor_unsafe (state: state) (local_state: local_state) : int = 
+    (List.nth state.per_user (Option.get local_state.uid)).cursor (* Option.get should never throw, because local_state.uid should always be set when this is called *)
 
 (* Step 1: Read a keystroke *)
 let get_keystroke char_reader =
@@ -179,10 +182,11 @@ type send_action =
     | CopyText of string
     | CutFlag of bool
     | DisplayError of string option
-    | Lock
     | Exit
+    | Lock
+    | ShiftView of int
 let is_local = function
-    | CopyText _ | CutFlag _ | DisplayError _ | Exit -> true
+    | CopyText _ | CutFlag _ | DisplayError _  | Exit | Lock | ShiftView _ -> true
     | _ -> false
 let is_remote = Fun.compose not is_local
 let local_only = List.filter is_local
@@ -193,14 +197,16 @@ let string_of_send_action = function
     | ReplaceText (start, len, s) -> Printf.sprintf "<ReplaceText %d %d \"%s\">" start len (String.escaped s)
     | CopyText s -> Printf.sprintf "<CopyText \"%s\">" (String.escaped s)
     | CutFlag f -> Printf.sprintf "<CutFlag %s>" (Bool.to_string f)
-    | DisplayError None -> "<DisplayError -->"
+    | DisplayError None -> "<DisplayError OK>"
     | DisplayError Some s -> Printf.sprintf "<DisplayError \"%s\">" (String.escaped s)
-    | Exit -> "<Exit>"
+    | ShiftView n -> Printf.sprintf "<ShiftView %d>" n
     | Lock -> "<Lock>"
+    | Exit -> "<Exit>"
 
 let insert offset str = [ReplaceText (offset, 0, str)]
 let delete offset len = [ReplaceText (offset, len, "")]
-let move_cursor offset = [ReplaceText (offset, 0, "")]
+let move_cursor offset = if offset = 0 then [] else [ReplaceText (offset, 0, "")]
+let move_view offset = if offset = 0 then [] else [ShiftView offset]
 let cut append_move clipboard text pos line_start line_end = 
     let new_text = String.sub text line_start (line_end-line_start+1) in
     let clipboard = if append_move then clipboard ^ new_text else new_text in
@@ -210,7 +216,9 @@ let cut append_move clipboard text pos line_start line_end =
         CutFlag true
     ]
 
-(* Helper functions to convert between two views of a document.
+
+(* Three Views of a Document
+*  =========================
 *
 * A document is an immutable string. All documents end in a newline (and therefore are at least 1 character long).
 * 
@@ -233,17 +241,47 @@ let cut append_move clipboard text pos line_start line_end =
 *     ^       This is line 2, col 0 == pos 14
 *     N
 *     ^       This is line 3, col 0 == pos 15
+*
+*     ==S-LINE/S-COL view (width 3)==
+*     Lin
+*       ^       s-line 0, col 2
+*     e 0       
+*
+*     N
+*
+*     Lin
+*
+*     e 1
+*
+*     N         s-line 5, col 0
+*     ^
+*     N         s-line 6, col 0
+*     ^
+*     N         s-line 7, col 0
+*     ^
 * 
-* The two views are:
+* The three views are:
 * 
-*  - the POS view
+*  - the POS view           [POS]2
 *     - POS counts characters from start of document.
 *     - POS 0 is the first character in the document.
-*  - the LINE/COL view 
+*  - the LINE/COL view:     L0C2    
 *     - LINE/COL view is based on "physical" lines within the document based only on newline characters. It doesn't depend on word wrap, terminal size, or viewport position.
 *     - LINE 0 is the first line in a document, and LINE 0, COL 0 is the first character in a document.
 *     - The newline is considered the last character in each line. Remember that the last line in a document also ends in a newline.
 *     - LINE N, COL M is the same as POS(Nth newline position + M+1 more chars)
+*  - the SLINE/SCOL view:   0      + SL 0 + SC 2
+*                           L0[C0] + SL 0 + SC 2
+*     - the SLINE/SCOL view is based on "screen" lines, taking into account word wrap but not the viewport. 
+*       In other words, how would the document look if it was wrapped to 80 columns, but infinitely tall?
+*     - While you could count S-LINE from the top of the document, this means that a pointer to (ex.) SLINE 50 would not the be same across users, would become invalid if
+*       the terminal width changed, and generally is not very stable in the face of editing.
+*       Therefore, we store as deltas from something more stable:
+*         - Given a POS, we can treat it as an s-line containing that POS value [ignore or zero the s-col value]. 
+*           This is how we store where the top of the screen should be ('view')
+*         - Given two POS values, what is the delta of S-LINES and S-COLS between them?         0      + SL 0 + SC 2
+*         - Given a LINE and a POS, what is the delta of S-LINES and S-COLS between them?       L0[C0] + SL 0 + SC 2
+*       Additionally, we avoid storing even these deltas anywhere permanent.
 * 
 * POS should always be between 0 and LEN-1 (inclusive) -- 0 to 15 in the example
 * POS functions accept values outside this range but clip them. Returned values will be in this range.
@@ -252,7 +290,11 @@ let cut append_move clipboard text pos line_start line_end =
 * LINE should be between 0 and NEWLINES-1 (inclusive) -- 0 to 3 in the example
 * COL should be between 0 and the length of the line (excluding any newline before the line, including the one at the end of the line). In example line 1, COL could range from 0 to 6.
 * LINE/COL functions accept values outside these ranges and clip them. Returned values will be in these ranges.
+*
 *)
+
+let document_end (s: string) : int = (String.length s)-1
+let document_clamp (s: string) : int->int = clamp 0 (document_end s)
 
 let string_count (s:string) (c: char) : int =
     String.fold_left (fun acc x -> if x = c then acc + 1 else acc) 0 s
@@ -273,16 +315,16 @@ let nth_line_start s n =
 let line_of (text : string) (pos : int) : int * int =
     (* [line_of text pos] is the line and column number of the [pos]-th byte in [text].
     All indices are from 0.*)
-    let pos = clamp 0 ((String.length text)-1) pos in
     let rec helper (text: string) (pos: int) (lines_before_offset: int) (offset: int) =
         (* Invariant: offset is first character after a newline OR first char in file *)
         match String.index_from_opt text offset '\n' with
             | Some i when i < pos -> helper text pos (lines_before_offset+1) (i+1)
             | _ -> (lines_before_offset, pos-offset)
-    in helper text pos 0 0
+    in helper text (document_clamp text pos) 0 0
 
 let line_for (text : string) (pos : int) : int * int =
     (* [line_for text pos] is the start and end of the line containing the [pos]-th byte in [text]. *)
+    (* TODO: Optimize *)
     let (line_num, col) = line_of text pos in
     let start = nth_line_start text line_num in
     let end_line = ~-1 + nth_line_start text (line_num+1) in
@@ -294,12 +336,120 @@ let pos_of (text: string) (line: int) (col: int) : int =
     let max_line_num = (string_count text '\n')-1 in 
     match line with
         | n when n<0 -> 0
-        | n when n>max_line_num -> (String.length text)-1
+        | n when n>max_line_num -> document_end text
         | _ ->
             let line_start = nth_line_start text line in
             let next_line_start = nth_line_start text (line+1) in
             let line_length = next_line_start-line_start in (* includes trailing newline *)
             line_start + clamp 0 (line_length-1) col
+
+(* S-line/s-col functions *)
+type sline_delta = int * int
+
+let wholeline_sline_num (width: int) (line_start: int) (pos: int) : int * int =
+    (* [pos] is located within the s-line with index [wholeline_sline_num width line_start pos]. [line_start] is the index of the first character in the physical line containing [pos].
+       The first s-line is sline 0. *)
+    ((pos - line_start) / width, (pos - line_start) mod width)
+
+let count_line_slines (width: int) (first: int) (last: int) : int = (last - first) / width + 1
+let sline_length (width: int) (text: string) (pos: int) : int =
+    let (s,e) = line_for text pos in
+    count_line_slines width s e
+let wholeline_count_slines (width: int) (text: string) (first: int) (last: int) : int =
+    (* Count the number of s-lines between [first] (at the beginning of a physical line)
+                                       and [last]  (at the end of a physical line--some \n) *)
+    let rec helper (first: int) (counted: int) : int =
+        if first > last then counted else
+        let (_, endl) = line_for text first in
+        helper (endl+1) (counted + count_line_slines width first endl)
+    in helper first 0
+
+let rec sline_difference (width: int) (text: string) (pos1: int) (pos2: int) : sline_delta =
+    if (pos1 < pos2) then let (a, b) = (sline_difference width text pos2 pos1) in (-a, -b) else
+    let (start1, end1) = line_for text pos1 in
+    let (start2, end2) = line_for text pos2 in
+    let total_slines = wholeline_count_slines width text start1 end2 in
+    let line2slines = wholeline_count_slines width text start2 end2 in
+    let (pos1sline, pos1col) = wholeline_sline_num width start1 pos1 in
+    let (pos2sline, pos2col) = wholeline_sline_num width start2 pos2 in
+    (total_slines - pos1sline - (line2slines - pos2sline), pos2col - pos1col)
+
+let sline_add_whole (width: int) (text: string) (sline_start: int) (slines: int) : int =
+    (* Given [sline_start] which is the start of some s-line, move an integer number of s-lines in either direction. Clip to the document boundries. *)
+    let (start1, end1) = line_for text sline_start in
+    let (sline_num, _) = wholeline_sline_num width start1 sline_start in
+    let rec helper pos delta_slines = (* POS is the start of a physical line *)
+        if delta_slines < 0 then
+            (* Move left 1 physical line from pos (or less) *)
+            if pos = 0 then 0 else (* Don't go off the start of the document *)
+            let (start1, end1) = line_for text (pos-1) in
+            helper start1 (delta_slines + count_line_slines width start1 end1)
+        else 
+            (* Move right 1 physical line from pos (or less) *)
+            let (_, end1) = line_for text pos in
+            let num_slines = count_line_slines width start1 end1 in
+            if delta_slines < num_slines then pos + delta_slines * width
+            else if end1 >= (document_end text) then pos + (num_slines-1) * width (* Don't go off the end of the document *)
+            else helper (end1+1) (delta_slines - num_slines)
+    in helper start1 (slines - sline_num)
+
+let sline_add (width: int) (text: string) (pos: int) (delta: sline_delta) : int =
+    let (slines, scols) = delta in
+    let (start1, end1) = line_for text pos in
+    let (sline1, scol1) = wholeline_sline_num width start1 pos in
+    let final_sline_start = sline_add_whole width text sline1 slines in
+    final_sline_start + clamp 0 (sline_length width text final_sline_start) (scols + scol1)
+
+(* There is a constraint that the cursor should always be inside the viewport. This is logic to deal with it. *)
+
+let avail_height (terminal: terminal_size) : int = terminal.rows - 3
+
+type cursor_bound = | OnScreen | OffTop of int | OffBottom of int
+let cursor_in_viewport (text: string) (terminal: terminal_size) (view) (cursor: int) : cursor_bound =
+    match sline_difference terminal.cols text cursor view with
+    | (n, _) when n < 0 -> OffTop n
+    | (n, _) when n >= (avail_height terminal) -> OffBottom (n - (avail_height terminal))
+    | _ -> OnScreen
+
+let adjust_view_to_include_cursor (text: string) (terminal: terminal_size) (view: int) (cursor: int) : int =
+    (* When the cursor moves, we need to scroll the view to include it. Return the new view. *)
+    match cursor_in_viewport text terminal view cursor with
+    | OnScreen -> view
+    | OffTop n | OffBottom n -> sline_add terminal.cols text view (n, 0)
+
+let adjust_cursor_to_be_visible (text: string) (terminal: terminal_size) (view: int) (cursor: int) : send_action list =
+    (* When the view moves, we need to move the cursor to stay inside it. Return cursor movements as actions. *)
+    let new_cursor = match cursor_in_viewport text terminal view cursor with
+    | OnScreen -> cursor
+    | OffTop n | OffBottom n -> sline_add terminal.cols text cursor (-n, 0)
+    in move_cursor (new_cursor - cursor)
+
+(* Functions such as PageUp/PageDown shift both the cursor and the view, and even ScrollUp/ScrollDown can sometimes move the cursor *)
+
+let shift_sline_action (state: state) (local_state: local_state) (slines: int) (pos: int) : int * int * int =
+    if slines = 0 then (0,pos,0) else
+    let new_pos = sline_add local_state.terminal_size.cols state.text pos (slines, 0) in
+    let (shifted_slines, _) = sline_difference local_state.terminal_size.cols state.text new_pos pos in
+    (shifted_slines, new_pos, new_pos-pos)
+
+let shift_only_cursor (state: state) (local_state: local_state) (slines: int) : int * int * send_action list =
+    let (shifted_slines, new_cursor, cursor_delta) = shift_sline_action state local_state slines (get_cursor_unsafe state local_state) in
+    (shifted_slines, new_cursor, move_cursor cursor_delta)
+
+let shift_only_view (state: state) (local_state: local_state) (slines: int) : int * int * send_action list =
+    let (shifted_slines, new_view, view_delta) = shift_sline_action state local_state slines local_state.view in
+    (shifted_slines, new_view, move_view view_delta)
+
+let shift_view (state: state) (local_state: local_state) (slines: int) : send_action list = (* Used in: ScrollUp/ScrollDown *)
+    let (shifted_slines, new_view, view_actions) = shift_only_view state local_state slines in
+    let cursor = get_cursor_unsafe state local_state in
+    let cursor_actions = adjust_cursor_to_be_visible state.text local_state.terminal_size new_view cursor in
+    view_actions @ cursor_actions
+
+let shift_cursor_and_view (state: state) (local_state: local_state) (slines: int) : send_action list = (* Used in: PageUp/PageDown *)
+    let (shifted_slines, new_cursor, cursor_actions) = shift_only_cursor state local_state slines in
+    let (_, _, view_actions) = shift_only_view state local_state shifted_slines in
+    view_actions @ cursor_actions
 
 let compute_actions (state: state) (local_state: local_state) button = 
     let page_lines = local_state.terminal_size.rows in
@@ -317,8 +467,8 @@ let compute_actions (state: state) (local_state: local_state) button =
     | Up ->   move_cursor ((pos_of text (physical_line-1) col)-pos)
     | End ->  move_cursor (last-pos)
     | Home -> move_cursor (first-pos)
-    | PageDown -> move_cursor ((pos_of text (physical_line+page_lines) col)-pos)
-    | PageUp ->   move_cursor ((pos_of text (physical_line-page_lines) col)-pos)
+    | PageDown -> shift_cursor_and_view state local_state page_lines
+    | PageUp ->   shift_cursor_and_view state local_state (-page_lines)
     | Exit -> [Exit]
     | Help -> [] (* TODO *)
     | Justify -> [] (* TODO *)
@@ -326,8 +476,8 @@ let compute_actions (state: state) (local_state: local_state) button =
     | Right -> move_cursor 1
     | Paste -> insert 0 clipboard
     | Save -> [Save]
-    | ScrollDown -> [] (* TODO: Affect the view, not the cursor *)
-    | ScrollUp -> []
+    | ScrollDown -> shift_view state local_state 1
+    | ScrollUp ->   shift_view state local_state (-1)
     | Tab -> insert 0 "    "
     | Key c -> insert 0 (String.make 1 c)
     | Unknown s -> [DisplayError (Some (Printf.sprintf "Unknown key pressed: %s" s))]

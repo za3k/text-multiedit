@@ -79,7 +79,7 @@ let init_local_state = {
     view = 7;
     move_since_cut = true;
     (*terminal_size = { rows=80; cols=25 };*)
-    terminal_size = { rows=10; cols=6 };
+    terminal_size = { rows=7; cols=6 };
     clipboard = "";
     locked = false;
     error = None;

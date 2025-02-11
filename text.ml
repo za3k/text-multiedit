@@ -49,6 +49,8 @@
         connected users, creating the document if needed.
 *)
 
+let max_rows = 80
+
 type background_color = 
     | Black | Red | Green | Yellow | Blue | Magenta | Cyan | White 
     | BrightBlack | BrightRed | BrightGreen | BrightYellow | BrightBlue | BrightMagenta | BrightCyan | BrightWhite
@@ -65,7 +67,7 @@ let init_state = {
     document_name="test_file.txt";
     per_user = [
         { user="zachary"; cursor=2; color=Red;  };
-        { user="editor2"; cursor=13; color=Blue; };
+        { user="editor2"; cursor=11; color=BrightMagenta; };
     ]
 }
 
@@ -74,9 +76,10 @@ type terminal_size = { rows: int; cols: int }
 type local_state = { view: view; move_since_cut: bool; clipboard: string; uid: int option; terminal_size: terminal_size; error: string option; locked: bool }
 let init_local_state = {
     uid = Some 0;
-    view = 0;
+    view = 7;
     move_since_cut = true;
-    terminal_size = { rows=80; cols=25 };
+    (*terminal_size = { rows=80; cols=25 };*)
+    terminal_size = { rows=10; cols=6 };
     clipboard = "";
     locked = false;
     error = None;
@@ -380,6 +383,9 @@ let wholeline_sline_num (width: int) (line_start: int) (pos: int) : int * int =
     physical line containing [pos].
        The first s-line is sline 0. *)
     ((pos - line_start) / width, (pos - line_start) mod width)
+let sline_num (width: int) (text: string) (pos: int) : int * int =
+    let (line_start, _) = line_for text pos in
+    wholeline_sline_num width line_start pos
 
 let count_line_slines (width: int) (first: int) (last: int) : int = 
     (last - first) / width + 1
@@ -438,10 +444,22 @@ let sline_add (width: int) (text: string) (pos: int) (delta: sline_delta) : int 
 This is logic to deal with it. *)
 
 let avail_height (terminal: terminal_size) : int = terminal.rows - 3
+let avail_cols   (terminal: terminal_size) : int = min max_rows terminal.cols
+type viewport = int * int
 
 type cursor_bound = | OnScreen | OffTop of int | OffBottom of int
+
+let viewport state local_state =
+    let width = (avail_cols local_state.terminal_size)
+    and height = (avail_height local_state.terminal_size)
+    and text = state.text in
+    let (view_start, _) = sline_num width text local_state.view in
+    let view_end = sline_add_whole width text view_start height in
+    (view_start, view_end-1) (* TODO: -1 is a bug at the end of the document *)
+let in_viewport vp pos = pos >= (fst vp) && pos <= (snd vp)
+
 let cursor_in_viewport (text: string) (terminal: terminal_size) (view) (cursor: int) : cursor_bound =
-    match sline_difference terminal.cols text cursor view with
+    match sline_difference (avail_cols terminal) text cursor view with
     | (n, _) when n < 0 -> OffTop n
     | (n, _) when n >= (avail_height terminal) -> OffBottom (n - (avail_height terminal))
     | _ -> OnScreen
@@ -451,14 +469,14 @@ let adjust_view_to_include_cursor (text: string) (terminal: terminal_size) (view
     the new view. *)
     match cursor_in_viewport text terminal view cursor with
     | OnScreen -> view
-    | OffTop n | OffBottom n -> sline_add terminal.cols text view (n, 0)
+    | OffTop n | OffBottom n -> sline_add (avail_cols terminal) text view (n, 0)
 
 let adjust_cursor_to_be_visible (text: string) (terminal: terminal_size) (view: int) (cursor: int) : send_action list =
     (* When the view moves, we need to move the cursor to stay inside it.
     Return cursor movements as actions. *)
     let new_cursor = match cursor_in_viewport text terminal view cursor with
     | OnScreen -> cursor
-    | OffTop n | OffBottom n -> sline_add terminal.cols text cursor (-n, 0)
+    | OffTop n | OffBottom n -> sline_add (avail_cols terminal) text cursor (-n, 0)
     in move_cursor (new_cursor - cursor)
 
 (* Functions such as PageUp/PageDown shift both the cursor and the view, and
@@ -466,8 +484,9 @@ even ScrollUp/ScrollDown can sometimes move the cursor *)
 
 let shift_sline_action (state: state) (local_state: local_state) (slines: int) (pos: int) : int * int * int =
     if slines = 0 then (0,pos,0) else
-    let new_pos = sline_add local_state.terminal_size.cols state.text pos (slines, 0) in
-    let (shifted_slines, _) = sline_difference local_state.terminal_size.cols state.text new_pos pos in
+    let width = avail_cols local_state.terminal_size in
+    let new_pos = sline_add width state.text pos (slines, 0) in
+    let (shifted_slines, _) = sline_difference width state.text new_pos pos in
     (shifted_slines, new_pos, new_pos-pos)
 
 let shift_only_cursor (state: state) (local_state: local_state) (slines: int) : int * int * send_action list =
@@ -490,7 +509,7 @@ let shift_cursor_and_view (state: state) (local_state: local_state) (slines: int
     view_actions @ cursor_actions
 
 let compute_actions (state: state) (local_state: local_state) button = 
-    let page_lines = local_state.terminal_size.rows in
+    let page_lines = avail_height local_state.terminal_size in
     let text = state.text in
     let pos = get_cursor_unsafe state local_state in
     let (physical_line, col) = line_of text pos in
@@ -573,18 +592,16 @@ let server_stub (uid: int option) (actions: send_action list) : receive_action l
     which is always at the beginning of a line.
 *)
 
-let apply_remote_action (combined_state: state * local_state) (action: receive_action) : state * local_state = 
+let apply_remote_action (combined_state: state * local_state) : receive_action -> state * local_state = 
     (*print_endline (Printf.sprintf "ApplyingRemote: %s" (string_of_receive_action action));*)
     let (state, local_state) = combined_state in
-    match action with
+    function
     | ReplaceText (ed_uid, start, length, replacement) ->
         (* 
             1. Change the text
             2. Move the editor's cursor
             3. Shift view
             4. Update view if the user's cursor is off screen
-               TODO: The view should be adjusted if the cursor is off screen,
-               either here or elsewhere
         *)
         let text_length = String.length state.text in
         let user = List.nth state.per_user ed_uid in
@@ -594,14 +611,16 @@ let apply_remote_action (combined_state: state * local_state) (action: receive_a
         let net_change = (String.length replacement) - length in
         let new_text = (String.sub state.text 0 pos) ^ replacement ^ (String.sub state.text (pos + length) (text_length - pos - length)) in
         (*             state.text[0:pos]             + replacement + state.text[pos+length:] *)
+        let shift p = if p <= pos then p else p + net_change in
         let new_users = List.mapi (fun (uid: int) (user: user_state) ->
             if uid = ed_uid then { user with cursor = pos + (String.length replacement) }
-            else if user.cursor <= pos then user
-            else { user with cursor = user.cursor + net_change }
+            else { user with cursor = shift user.cursor }
         ) state.per_user in
         let state = { state with per_user = new_users; text = new_text } in
-        (* TODO: Shift view *)
-        (* TODO: Update view if cursor is off screen *)
+        let cursor = get_cursor_unsafe state local_state in
+        let view = adjust_view_to_include_cursor new_text
+                   local_state.terminal_size (shift local_state.view) cursor in
+        let local_state = { local_state with view = view } in
         (state, local_state)
     | UserJoins user_state -> ({state with per_user = state.per_user @ [user_state]}, local_state)
     | UserLeaves uid -> ({state with per_user = remove1 uid state.per_user}, local_state)
@@ -629,20 +648,71 @@ let rec lookup_cursor_color (users: user_state list) (pos: int) : background_col
         | _ -> None
     ) users |> any
 
-let colorize (s: string) (color: background_color) : string =
+let colorize (color: background_color) (s: string) : string =
     "\027[" ^ (color_code color) ^ s ^ "\027[0m"
         
-let display_document (text: string) (color_of: int -> background_color option) : string =
+let rec except_last = function
+    | [] -> []
+    | a :: [] -> []
+    | h :: l -> h :: except_last l
+
+let display_document (width: int) (text: string) (color_of: int -> background_color option) : string =
     let colorize_char (index: int) (c: char) =
-        let s = String.make 1 c in
-        match color_of index with
-            | Some color -> if c ='\n' then colorize " " color ^ "\n" else colorize s color
-            | None -> s
-    in String.concat "" (List.mapi colorize_char (text |> String.to_seq |> List.of_seq))
+        let s = match c with
+            | '\n' -> " "
+            | _ -> String.make 1 c
+        in match color_of index with
+            | Some color -> colorize color s
+            | None -> s in
+
+    let open Seq in
+    let lines = String.split_on_char '\n' text |> except_last |> List.to_seq
+                |> map (fun x -> x ^ "\n") in
+    let start_indices = lines |> map String.length |> scan (+) 0 in
+    zip start_indices lines |> zip (ints 0) |> map (function
+        | (line_no, (line_start, line)) ->
+            let slines = line |> unfold (function
+                | "" -> None
+                | s when String.length s <= width -> Some (s, "")
+                | s -> let first = String.sub s 0 width
+                       and rest = String.sub s width ((String.length s)-width) in
+                       Some (first, rest)) in
+            let start_indices = map String.length slines |> scan (+) line_start in
+            zip start_indices slines |> zip (ints 0) |> zip (repeat line_no))
+    |> concat |> map (function
+        | (line_no, (sline_no, (sline_start, sline))) ->
+            let colorize = fun i c -> colorize_char (i+sline_start) c in
+            (if sline_no = 0 then Printf.sprintf "%2d " line_no else "   ") ^
+            Printf.sprintf "%2d " sline_no ^
+            (sline |> String.to_seq |> mapi colorize |> List.of_seq |> String.concat "") ^
+            "\n")
+    |> List.of_seq |> String.concat ""
+
+let display_cursors state =
+    state.per_user |> List.map (function
+        | {user; cursor; color} ->
+            Printf.sprintf " %s: %d " user cursor |> colorize color)
+    |> String.concat "  "
+
+let display_view state local_state =
+    let (vs, ve) = viewport state local_state in
+    Printf.sprintf " Viewport %d-%d " vs ve |> colorize Blue
+
+let display_help width =
+    ""
 
 let display (state: state) (local_state: local_state) : unit =
     let color_cursor = lookup_cursor_color state.per_user in
-    print_endline (display_document state.text color_cursor)
+    let visible = in_viewport (viewport state local_state) in
+    let color_viewport p = match visible p with
+        | true -> Some Blue
+        | false -> None in
+    let color p = any [color_cursor p; color_viewport p] in
+    let width = (avail_cols local_state.terminal_size) in
+    display_document width state.text color
+    ^ display_cursors state ^ "  " ^ display_view state local_state ^ "\n"
+    ^ display_help width
+    |> print_endline
 
 (* [Go to step 1] *)
 (* Teardown:

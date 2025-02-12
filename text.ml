@@ -696,7 +696,7 @@ let display_cursors state =
 
 let display_view state local_state =
     let (vs, ve) = viewport state local_state in
-    Printf.sprintf " Viewport %d-%d " vs ve |> colorize Blue
+    Printf.sprintf " Viewport %d-%d [%d] " vs ve local_state.view |> colorize Blue
 
 let display_help width =
     ""
@@ -709,7 +709,7 @@ let display (state: state) (local_state: local_state) : unit =
         | false -> None in
     let color p = any [color_cursor p; color_viewport p] in
     let width = (avail_cols local_state.terminal_size) in
-    display_document width state.text color
+    print_endline ""; display_document width state.text color
     ^ display_cursors state ^ "  " ^ display_view state local_state ^ "\n"
     ^ display_help width
     |> print_endline

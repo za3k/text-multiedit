@@ -377,68 +377,107 @@ let pos_of (text: string) (line: int) (col: int) : int =
 (* S-line/s-col functions *)
 type sline_delta = int * int
 
-let wholeline_sline_num (width: int) (line_start: int) (pos: int) : int * int =
-    (* [pos] is located within the s-line with index [wholeline_sline_num width
+let wholeline_sline_index (width: int) (line_start: int) (pos: int) : int * int =
+    (* [pos] is located within the s-line with index [wholeline_sline_index width
     line_start pos]. [line_start] is the index of the first character in the
     physical line containing [pos].
        The first s-line is sline 0. *)
     ((pos - line_start) / width, (pos - line_start) mod width)
-let sline_num (width: int) (text: string) (pos: int) : int * int =
+let sline_index (width: int) (text: string) (pos: int) : int * int =
     let (line_start, _) = line_for text pos in
-    wholeline_sline_num width line_start pos
+    wholeline_sline_index width line_start pos
 
-let count_line_slines (width: int) (first: int) (last: int) : int = 
+let num_slines_in_line (width: int) (first: int) (last: int) : int = 
     (last - first) / width + 1
-let sline_length (width: int) (text: string) (pos: int) : int =
-    let (s,e) = line_for text pos in
-    count_line_slines width s e
-let wholeline_count_slines (width: int) (text: string) (first: int) (last: int) : int =
+let num_slines_in_lines (width: int) (text: string) (first: int) (last: int) : int =
     (* Count the number of s-lines between [first] (at the beginning of a
     physical line)
        and [last]  (at the end of a physical line--some \n) *)
     let rec helper (first: int) (counted: int) : int =
         if first > last then counted else
         let (_, endl) = line_for text first in
-        helper (endl+1) (counted + count_line_slines width first endl)
+        helper (endl+1) (counted + num_slines_in_line width first endl)
     in helper first 0
 
+let sline_for (width: int) (text: string) (pos: int) : int * int =
+    let (_, col) = sline_index width text pos
+    and (_, line_end) = line_for text pos in
+
+    let start = pos - col in
+    let end_ = min (start + width - 1) line_end in
+    (start, end_)
+let sline_length (width: int) (text: string) (pos: int) : int =
+    let (s,e) = sline_for width text pos in
+    e-s+1
+
 let rec sline_difference (width: int) (text: string) (pos1: int) (pos2: int) : sline_delta =
-    if (pos1 < pos2) then let (a, b) = 
+    (* To go from [pos1] to [pos2], how many rows and columns must you add? *)
+    if (pos1 > pos2) then let (a, b) = 
         (sline_difference width text pos2 pos1) in (-a, -b) else
-    let (start1, end1) = line_for text pos1 in
-    let (start2, end2) = line_for text pos2 in
-    let total_slines = wholeline_count_slines width text start1 end2 in
-    let line2slines = wholeline_count_slines width text start2 end2 in
-    let (pos1sline, pos1col) = wholeline_sline_num width start1 pos1 in
-    let (pos2sline, pos2col) = wholeline_sline_num width start2 pos2 in
+    let (start1, end1) = line_for text pos1
+    and (start2, end2) = line_for text pos2 in
+    let total_slines = num_slines_in_lines width text start1 end2
+    and line2slines  = num_slines_in_lines width text start2 end2 in
+    let (pos1sline, pos1col) = wholeline_sline_index width start1 pos1
+    and (pos2sline, pos2col) = wholeline_sline_index width start2 pos2 in
+    (*
+    --o++                               -- = A = pos1sline[2]
+    +++++
+    +++++
+    +o--                                -- = B = line2slines[4] - pos2sline[1] - 1
+
+                -- o ++..++ o -- = total_slines[5+5+5+4]
+    (subtract)  -- o        o -- = A + 1 + B
+    (equals)         ++..++ o    = difference 
+                                 = total_slines - A - B - 1
+                                 = total_slines - pos1sline - line2slines + pos2sline
+
+    --o+++o--- (one-line case)   = pos2sline - pos1sline
+                                   (total_slines = line2slines)
+                                 = total_slines - pos1sline - line2slines + pos2sline
+
+    Note: if both ends are in the same sline, the result should be 0, which is not really
+    covered by the above logic (but 
+    *)
     (total_slines - pos1sline - (line2slines - pos2sline), pos2col - pos1col)
 
-let sline_add_whole (width: int) (text: string) (sline_start: int) (slines: int) : int =
+let sline_add_whole (width: int) (text: string) (sline_start: int) (delta_slines1: int) : int =
     (* Given [sline_start] which is the start of some s-line, move an integer
-    number of s-lines in either direction. Clip to the document boundries. *)
+    number of s-lines in either direction. Clip to the document boundries.
+    If the result is off the top of the document, [0] is returned.
+    If the result is off the bottom of the document, [String.length text] is returned (one past the final valid index).
+    *)
     let (start1, end1) = line_for text sline_start in
-    let (sline_num, _) = wholeline_sline_num width start1 sline_start in
+    let (sline_num, col) = sline_index width text sline_start in
+    if col <> 0 then -999 else
     let rec helper pos delta_slines = (* POS is the start of a physical line *)
         if delta_slines < 0 then
             (* Move left 1 physical line from pos (or less) *)
             if pos = 0 then 0 else (* Don't go off the start of the document *)
             let (start1, end1) = line_for text (pos-1) in
-            helper start1 (delta_slines + count_line_slines width start1 end1)
+            helper start1 (delta_slines + num_slines_in_line width start1 end1)
         else 
             (* Move right 1 physical line from pos (or less) *)
-            let (_, end1) = line_for text pos in
-            let num_slines = count_line_slines width start1 end1 in
+            let (start1, end1) = line_for text pos in
+            let num_slines = num_slines_in_line width start1 end1 in
             if delta_slines < num_slines then pos + delta_slines * width
-            else if end1 >= (document_end text) then pos + (num_slines-1) * width (* Don't go off the end of the document *)
+            else if end1 >= (document_end text) then (String.length text) (* Only go 1 off the end of the document *)
             else helper (end1+1) (delta_slines - num_slines)
-    in helper start1 (slines - sline_num)
+    in helper start1 (delta_slines1 + sline_num)
 
 let sline_add (width: int) (text: string) (pos: int) (delta: sline_delta) : int =
-    let (slines, scols) = delta in
-    let (start1, end1) = line_for text pos in
-    let (sline1, scol1) = wholeline_sline_num width start1 pos in
-    let final_sline_start = sline_add_whole width text sline1 slines in
-    final_sline_start + clamp 0 (sline_length width text final_sline_start) (scols + scol1)
+    (* Given the index [pos] into [text], move [delta] columns and rows from that index. The row is adjusted first, then the column.
+    If the result is off the top of the document, [0] is returned.
+    If the result is off the bottom of the document, [String.length text] is returned (one past the final valid index).
+    If the result is off the left or right side of an s-line, it is silently clipped (not wrapped around).
+    *)
+    let (delta_slines, delta_scols) = delta
+    and (start1, end1) = line_for text pos in
+    let (_, scol1) = wholeline_sline_index width start1 pos
+    and (sline_start, _) = sline_for width text pos in
+    let final_sline_start = sline_add_whole width text sline_start delta_slines in
+    if final_sline_start >= (String.length text) then final_sline_start else
+    final_sline_start + clamp 0 ((sline_length width text final_sline_start) - 1) (delta_scols + scol1)
 
 (* There is a constraint that the cursor should always be inside the viewport.
 This is logic to deal with it. *)
@@ -448,20 +487,25 @@ let avail_cols   (terminal: terminal_size) : int = min max_rows terminal.cols
 type viewport = int * int
 
 type cursor_bound = | OnScreen | OffTop of int | OffBottom of int
+let string_of_cursor_bound = function 
+    | OnScreen -> "OnScreen"
+    | OffTop n -> Printf.sprintf "OffTop(%d)" n
+    | OffBottom n -> Printf.sprintf "OffBottom(%d)" n
 
 let viewport state local_state =
     let width = (avail_cols local_state.terminal_size)
     and height = (avail_height local_state.terminal_size)
     and text = state.text in
-    let (view_start, _) = sline_num width text local_state.view in
+    let (view_start, _) = sline_for width text local_state.view in
     let view_end = sline_add_whole width text view_start height in
-    (view_start, view_end-1) (* TODO: -1 is a bug at the end of the document *)
+    (* view_end-1 works because sometimes view_end is 1 aft:r the end of the document *)
+    (view_start, view_end-1) 
 let in_viewport vp pos = pos >= (fst vp) && pos <= (snd vp)
 
 let cursor_in_viewport (text: string) (terminal: terminal_size) (view) (cursor: int) : cursor_bound =
-    match sline_difference (avail_cols terminal) text cursor view with
+    match sline_difference (avail_cols terminal) text view cursor with
     | (n, _) when n < 0 -> OffTop n
-    | (n, _) when n >= (avail_height terminal) -> OffBottom (n - (avail_height terminal))
+    | (n, _) when n >= (avail_height terminal) -> OffBottom (n + 1 - (avail_height terminal))
     | _ -> OnScreen
 
 let adjust_view_to_include_cursor (text: string) (terminal: terminal_size) (view: int) (cursor: int) : int =
@@ -486,7 +530,7 @@ let shift_sline_action (state: state) (local_state: local_state) (slines: int) (
     if slines = 0 then (0,pos,0) else
     let width = avail_cols local_state.terminal_size in
     let new_pos = sline_add width state.text pos (slines, 0) in
-    let (shifted_slines, _) = sline_difference width state.text new_pos pos in
+    let (shifted_slines, _) = sline_difference width state.text pos new_pos in
     (shifted_slines, new_pos, new_pos-pos)
 
 let shift_only_cursor (state: state) (local_state: local_state) (slines: int) : int * int * send_action list =
@@ -557,6 +601,7 @@ let apply_local_action (state: state) (local_state: local_state): send_action ->
     | DisplayError s -> { local_state with error = s }
     | Exit -> exit 0
     | Lock -> { local_state with locked = true }
+    | ShiftView d -> { local_state with view = local_state.view + d }
     | _ -> local_state
 
 (* Step 5: Send the action to the server *)

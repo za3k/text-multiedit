@@ -18,6 +18,13 @@
         [x] Make sure stuff works on "\n\n" document
         [ ] Up/down should remember the "imaginary" column off the right end
             the cursor is on until the user types or presses left/right
+    [ ] Parse command-line arguments
+        [ ] --debug (old-style display printing, with 6x4 size screen and hardcoded initial state)
+        [ ] -1, --stand-alone (run both client and server together)
+        [ ] --server (run in server mode)
+        [ ] --client (run in client mode, the default)
+        [ ] --dir (directory to look files, default to /var/text in server mode, or current dir in single-user mode)
+        [ ] filename
     [ ] Improve the display to look like the real thing
         [ ] Add a help line
         [ ] Add the line of users
@@ -28,15 +35,22 @@
         [ ] Add document setup
         [ ] Add file load+save
         [ ] Add message queues for each user
-    [ ] Add the view [IN PROGRESS]
-        [ ] Make the view move with the user cursor
-        [ ] Make the view shift on inserts/deletes
-        [ ] Add word wrap: min(80, term-width)
-        [ ] Add ScrollDown/ScrollUp
+    [x] Add the view
+        [x] Make the view move with the user cursor
+        [x] Make the view shift on inserts/deletes
+        [x] Add line wrap: min(80, term-width)
+        [x] Add ScrollDown/ScrollUp
     [ ] Add networking (real client/server)
         [ ] Listen to first of (network, keyboard, SIGWINCH)
         [ ] Add keyboard locking/unlocking, Don't listen to keyboard while
             locked
+
+    FUTURE FEATURES
+    [ ] Read-only mode
+    [ ] Line numbers, go to line
+    [ ] Built-in help
+    [ ] Justify
+    [ ] Auto-save
 *)
 
 (* CLIENT LOGIC *)
@@ -685,6 +699,7 @@ let rec any : 'a option list -> 'a option = function
     | [] -> None
     | Some x :: _ -> Some x
     | None :: l -> any l
+let option_or a b = any [a; b]
 
 let rec lookup_cursor_color (users: user_state list) (pos: int) : background_color option = 
     (* { user="zachary"; cursor=2; color=Red;  }; *)
@@ -764,16 +779,12 @@ let display (state: state) (local_state: local_state) : unit =
     Send "Disconnect" to the server.
 *)
 
-(* (Unix.getuid () |> Unix.getpwuid).pw_name; *)
-
-(* In a loop, listen for any of:
-    - Messages from the server
-    - Terminal resize events (SIGWINCH)
-    - User keyboard input
-*)
-
-
-let client_main () : unit =
+type client_args = {
+    debug: bool;
+    files: string list;
+    user: string;
+}
+let client_main (client_args: client_args) : unit =
     (* Terminal stuff for start/exit *)
     (*
     let reset () : unit = print_string "\027[?1049l" in 
@@ -788,6 +799,11 @@ let client_main () : unit =
     let state = ref init_state in
 
     (* Main loop of the client *)
+    (* In a loop, listen for any of:
+        - Messages from the server
+        - Terminal resize events (SIGWINCH)
+        - User keyboard input
+    *)
     while true do
         let keystroke = get_keystroke() in
             print_string (Printf.sprintf "\"%s\" || " (String.escaped keystroke));
@@ -813,6 +829,14 @@ let client_main () : unit =
     <name>". Tag the connection with document and name. Put into the list of
     connections for that document, setting up the document if neded.
 *)
+
+type server_args = {
+    dir: string;
+}
+
+let server_main (server_args: server_args) : unit =
+    ()
+
 (* Document setup
     Open file for reading
     Populate state:
@@ -837,3 +861,53 @@ let client_main () : unit =
     If there are zero users connected, save the document and remove it from the
     documents list.
 *)
+
+type run_mode = Client | Server | StandAlone
+type cli_args = {
+    mode: run_mode;
+    client_args: client_args;
+    server_args: server_args;
+}
+    
+let parse_args () : cli_args =
+    let usage_msg = "text [--debug] [--dir DIR] [--stand-alone|--server|--client]" in
+    let debug = ref false 
+    and mode = ref Client
+    and dir = ref None
+    and files = ref [] in
+    let anon_fun filename = files := filename :: !files
+    and set_mode m = (Arg.Unit (fun () -> mode := m))
+    and set_option_string r = (Arg.String (fun s -> r := Some s)) in
+    let speclist = [
+        ("--debug", Arg.Set debug, "Make the screen small (6x4) and turn off screen refresh");
+        ("--stand-alone", set_mode StandAlone, "Run a stand-alone server to edit files with just one user");
+        ("--client", set_mode Client, "Connect to an existing server (the default)");
+        ("--server", set_mode Server, "Run a server to edit files. Files will be owned by the server uid.");
+        ("--dir", set_option_string dir, "Set the server working directory, where text files will be located.");
+        ("--", Arg.Rest anon_fun, "Stop parsing arguments");
+    ] in
+    Arg.parse speclist anon_fun usage_msg;
+    let get_dir mode dir = 
+        let default = match mode with
+        | Client -> None
+        | Server -> Some "/var/text"
+        | StandAlone -> Some (Sys.getcwd ())
+        in option_or dir default in
+    let user = (Unix.getuid () |> Unix.getpwuid).pw_name in
+    let dir = get_dir !mode !dir in
+    { 
+        mode = !mode; 
+        client_args = { files = !files; debug = !debug; user };
+        server_args = { dir = Option.value dir ~default: "" }
+    }
+
+let main () : unit =
+    let args = parse_args () in
+    match args.mode with
+    | Client -> client_main args.client_args
+    | Server -> server_main args.server_args
+    | StandAlone ->
+        let server = Domain.spawn (fun () -> server_main args.server_args) in (* TODO: Make sure the server is ready *)
+        client_main args.client_args;
+        Domain.join server
+        

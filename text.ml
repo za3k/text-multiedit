@@ -18,13 +18,8 @@
         [x] Make sure stuff works on "\n\n" document
         [ ] Up/down should remember the "imaginary" column off the right end
             the cursor is on until the user types or presses left/right
-    [ ] Parse command-line arguments
-        [ ] --debug (old-style display printing, with 6x4 size screen and hardcoded initial state)
-        [ ] -1, --stand-alone (run both client and server together)
-        [ ] --server (run in server mode)
-        [ ] --client (run in client mode, the default)
-        [ ] --dir (directory to look files, default to /var/text in server mode, or current dir in single-user mode)
-        [ ] filename
+        [ ] Cutting at the end of the file appends "\n" to the clipboard, and shouldn't
+    [x] Parse command-line arguments
     [ ] Improve the display to look like the real thing
         [ ] Add a help line
         [ ] Add the line of users
@@ -44,13 +39,16 @@
         [ ] Listen to first of (network, keyboard, SIGWINCH)
         [ ] Add keyboard locking/unlocking, Don't listen to keyboard while
             locked
+*)
 
+(*
     FUTURE FEATURES
     [ ] Read-only mode
     [ ] Line numbers, go to line
     [ ] Built-in help
     [ ] Justify
     [ ] Auto-save
+    [ ] Shift-arrows to highlight text
 *)
 
 (* CLIENT LOGIC *)
@@ -101,6 +99,8 @@ let init_local_state = {
 
 let clamp (x1:int) (x2:int) (x:int) : int = min (max x x1) x2
 let remove1 (i: int) : 'a list -> 'a list = List.filteri (fun j x -> j <> i)
+let compose f g x = f (g x)
+
 let get_cursor_unsafe (state: state) (local_state: local_state) : int = 
     (List.nth state.per_user (Option.get local_state.uid)).cursor (* Option.get should never throw, because local_state.uid should always be set when this is called *)
 
@@ -157,7 +157,7 @@ let printable_ascii = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTU
 let is_printable_ascii keystroke = String.length keystroke = 1 
     && String.get keystroke 0 |> String.contains printable_ascii
 let shortcuts = [
-    (["\b"], None, None, Backspace);
+    (["\b"; "\127"], None, None, Backspace);
     (["\011"], Some "^K", Some "Cut", Cut);
     (["\027[3~"], None, None, Del); 
     (["\027[B"], None, None, Down);
@@ -208,7 +208,7 @@ type send_action =
 let is_local = function
     | CopyText _ | CutFlag _ | DisplayError _  | Exit | Lock | ShiftView _ -> true
     | _ -> false
-let is_remote = Fun.compose not is_local
+let is_remote = compose not is_local (* Support OCaml 4.14.1 *)
 let local_only = List.filter is_local
 let remote_only = List.filter is_remote
 let string_of_send_action = function
@@ -906,8 +906,10 @@ let main () : unit =
     match args.mode with
     | Client -> client_main args.client_args
     | Server -> server_main args.server_args
-    | StandAlone ->
+    | StandAlone -> ()
+        (*
+        TODO: Does not work in OCaml 4.14.1, find an older solution?
         let server = Domain.spawn (fun () -> server_main args.server_args) in (* TODO: Make sure the server is ready *)
         client_main args.client_args;
         Domain.join server
-        
+        *)

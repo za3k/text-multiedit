@@ -11,18 +11,6 @@
         ASCII only, no Unicode
 *)
 
-(*
-    FUTURE FEATURES
-    [ ] Read-only mode
-    [ ] Line numbers, go to line
-    [ ] Built-in help
-    [ ] Justify
-    [ ] Auto-save
-    [ ] Shift-arrows to highlight text
-    [ ] Multiple columns
-*)
-
-
 (* CLIENT LOGIC *)
 (* Setup:
     Parse command line. Set username, filename.

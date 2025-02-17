@@ -3,3 +3,5 @@
 *.o
 *.log
 *.cache
+*.cmx
+editor

@@ -50,7 +50,7 @@ let init_local_state = {
     uid = Some 0;
     view = 7;
     move_since_cut = true;
-    terminal_size = { rows=80; cols=25 };
+    terminal_size = { rows=25; cols=80 };
     clipboard = "";
     locked = false;
     error = None;
@@ -675,7 +675,7 @@ let rec except_last = function
     | a :: [] -> []
     | h :: l -> h :: except_last l
 
-let display_document (width: int) (text: string) (color_of: int -> background_color option) : string =
+let display_document (width: int) (text: string) (color_of: int -> background_color option) : string list =
     let colorize_char (index: int) (c: char) =
         let s = match c with
             | '\n' -> " "
@@ -705,20 +705,20 @@ let display_document (width: int) (text: string) (color_of: int -> background_co
             Printf.sprintf "%2d " sline_no ^
             (sline |> String.to_seq |> mapi colorize |> List.of_seq |> String.concat "") ^
             "\n")
-    |> List.of_seq |> String.concat ""
+    |> List.of_seq |> String.concat "" |> String.split_on_char '\n'
 
-let display_cursors state =
+let display_cursors state : string =
     state.per_user |> List.map (function
         | {user; cursor; color} ->
             Printf.sprintf " %s: %d " user cursor |> colorize color)
     |> String.concat "  "
 
-let display_view state local_state =
+let display_view state local_state : string =
     let (vs, ve) = viewport state local_state in
     Printf.sprintf " Viewport %d-%d [%d] " vs ve local_state.view |> colorize Blue
 
-let display_help width =
-    ""
+let display_help width : string list =
+    ["HELP WOULD GO HERE"; "(more help)"]
 
 let display_debug (state: state) (local_state: local_state) : unit =
     let color_cursor = lookup_cursor_color state.per_user in
@@ -728,10 +728,12 @@ let display_debug (state: state) (local_state: local_state) : unit =
         | false -> None in
     let color p = any [color_cursor p; color_viewport p] in
     let width = (avail_cols local_state.terminal_size) in
-    print_endline ""; display_document width state.text color
-    ^ display_cursors state ^ "  " ^ display_view state local_state ^ "\n"
-    ^ display_help width
-    |> print_endline
+
+    let lines = [""] @ display_document width state.text color
+    @ [display_cursors state ^ display_view state local_state]
+    @ display_help width in
+
+    print_endline (String.concat "\n" lines)
 
 let display (state: state) (local_state: local_state) : unit =
     let color_cursor = lookup_cursor_color state.per_user in
@@ -741,11 +743,12 @@ let display (state: state) (local_state: local_state) : unit =
         | false -> None in
     let color p = any [color_cursor p; color_viewport p] in
     let width = (avail_cols local_state.terminal_size) in
+    let lines = display_document width state.text color
+    @ [display_cursors state ^ display_view state local_state]
+    @ display_help width in
+
     print_string "\027[2J\027[H"; (* Clear the screen *)
-    display_document width state.text color
-    ^ display_cursors state ^ "  " ^ display_view state local_state ^ "\n"
-    ^ display_help width
-    |> print_endline
+    print_endline (String.concat "\n" lines)
 
 (* [Go to step 1] *)
 (* Teardown:

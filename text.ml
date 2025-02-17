@@ -720,6 +720,9 @@ let display_view state local_state : string =
 let display_help width : string list =
     ["HELP WOULD GO HERE"; "(more help)"]
 
+let spacer_lines num_lines width =
+    List.init num_lines (fun _ -> (String.make width ' ' width))
+
 let display_debug (state: state) (local_state: local_state) : unit =
     let color_cursor = lookup_cursor_color state.per_user in
     let visible = in_viewport (viewport state local_state) in
@@ -743,7 +746,10 @@ let display (state: state) (local_state: local_state) : unit =
         | false -> None in
     let color p = any [color_cursor p; color_viewport p] in
     let width = (avail_cols local_state.terminal_size) in
-    let lines = display_document width state.text color
+    let height = (avail_height local_state.terminal_size) in
+    let lines = display_document width state.text color in
+    let lines = lines 
+    @ spacer_lines (height - (List.length lines)) width
     @ [display_cursors state ^ display_view state local_state]
     @ display_help width in
 

@@ -11,36 +11,6 @@
         ASCII only, no Unicode
 *)
 
-(* TODO LIST
-    [x] Make each shortcut work, one by one
-        [x] Make sure stuff works on an empty document
-        [x] Make sure stuff works with empty lines
-        [x] Make sure stuff works on "\n\n" document
-        [ ] Up/down should remember the "imaginary" column off the right end
-            the cursor is on until the user types or presses left/right
-        [ ] Cutting at the end of the file appends "\n" to the clipboard, and shouldn't
-    [x] Parse command-line arguments
-    [ ] Improve the display to look like the real thing
-        [ ] Add a help line
-        [ ] Add the line of users
-        [ ] Add an error message display
-        [ ] Clean the screen on each update
-        [ ] Reset the screen on_exit
-    [ ] Make the server stub fully realistic
-        [ ] Add document setup
-        [ ] Add file load+save
-        [ ] Add message queues for each user
-    [x] Add the view
-        [x] Make the view move with the user cursor
-        [x] Make the view shift on inserts/deletes
-        [x] Add line wrap: min(80, term-width)
-        [x] Add ScrollDown/ScrollUp
-    [ ] Add networking (real client/server)
-        [ ] Listen to first of (network, keyboard, SIGWINCH)
-        [ ] Add keyboard locking/unlocking, Don't listen to keyboard while
-            locked
-*)
-
 (*
     FUTURE FEATURES
     [ ] Read-only mode
@@ -49,7 +19,9 @@
     [ ] Justify
     [ ] Auto-save
     [ ] Shift-arrows to highlight text
+    [ ] Multiple columns
 *)
+
 
 (* CLIENT LOGIC *)
 (* Setup:

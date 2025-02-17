@@ -7,7 +7,7 @@ TEXTMU - The complete list
 [ ] Up/down should remember the "imaginary" column off the right end
 		the cursor is on until the user types or presses left/right
 [ ] Cutting at the end of the file appends "\n" to the clipboard, and shouldn't
-[ ] Fork two display modes - debug (done) and regular (clone the current one)
+[x] Fork two display modes - debug (done) and regular (clone the current one)
 [ ] Finish the display
 [ ] Display only visible lines
 [ ] KEEP line numbers (and make them all the same width)

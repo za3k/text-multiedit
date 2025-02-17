@@ -50,8 +50,7 @@ let init_local_state = {
     uid = Some 0;
     view = 7;
     move_since_cut = true;
-    (*terminal_size = { rows=80; cols=25 };*)
-    terminal_size = { rows=7; cols=6 };
+    terminal_size = { rows=80; cols=25 };
     clipboard = "";
     locked = false;
     error = None;
@@ -721,7 +720,7 @@ let display_view state local_state =
 let display_help width =
     ""
 
-let display (state: state) (local_state: local_state) : unit =
+let display_debug (state: state) (local_state: local_state) : unit =
     let color_cursor = lookup_cursor_color state.per_user in
     let visible = in_viewport (viewport state local_state) in
     let color_viewport p = match visible p with
@@ -730,6 +729,20 @@ let display (state: state) (local_state: local_state) : unit =
     let color p = any [color_cursor p; color_viewport p] in
     let width = (avail_cols local_state.terminal_size) in
     print_endline ""; display_document width state.text color
+    ^ display_cursors state ^ "  " ^ display_view state local_state ^ "\n"
+    ^ display_help width
+    |> print_endline
+
+let display (state: state) (local_state: local_state) : unit =
+    let color_cursor = lookup_cursor_color state.per_user in
+    let visible = in_viewport (viewport state local_state) in
+    let color_viewport p = match visible p with
+        | true -> Some Blue
+        | false -> None in
+    let color p = any [color_cursor p; color_viewport p] in
+    let width = (avail_cols local_state.terminal_size) in
+    print_string "\027[2J\027[H"; (* Clear the screen *)
+    display_document width state.text color
     ^ display_cursors state ^ "  " ^ display_view state local_state ^ "\n"
     ^ display_help width
     |> print_endline
@@ -746,16 +759,18 @@ type client_args = {
 }
 let client_main (client_args: client_args) : unit =
     (* Terminal stuff for start/exit *)
-    (*
-    let reset () : unit = print_string "\027[?1049l" in 
+    let reset () : unit = print_string "\027[?1049l\027[?25h" in 
     (* Save terminal, home the cursor *)
     at_exit reset;
     print_string "\027[?1049h\027[H"; (* Restore the terminal *)
+    print_string "\027[?25l"; (* Hide the cursor *)
     Sys.set_signal Sys.sigint (Signal_handle (function | _ -> exit 0));
-    *)
 
     (* Setup of the client *)
     let local_state = ref init_local_state in
+    if client_args.debug then
+        local_state := { !local_state with terminal_size = { rows=7; cols=6 } }
+    else ();
     let state = ref init_state in
 
     (* Main loop of the client *)
@@ -765,6 +780,8 @@ let client_main (client_args: client_args) : unit =
         - User keyboard input
     *)
     while true do
+        (if client_args.debug then display_debug else display)
+            !state !local_state;
         let keystroke = get_keystroke() in
             print_string (Printf.sprintf "\"%s\" || " (String.escaped keystroke));
         let button = get_button keystroke in
@@ -778,8 +795,7 @@ let client_main (client_args: client_args) : unit =
             (*print_string "Received from server: "; print_endline (String.concat "" (List.map string_of_receive_action msgs));*)
         let (s, ls) = List.fold_left apply_remote_action (!state, !local_state) msgs in
         state := s;
-        local_state := ls;
-        display !state !local_state
+        local_state := ls
     done
 
 (* SERVER LOGIC *)

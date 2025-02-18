@@ -2,6 +2,58 @@ TEXTMU - The complete list
 
 [x] Get a standalone binary (which will work on tilde)
 [ ] Write a list of things to simplify in the code
+	- Move debug-only code into debug.ml (printing)
+	- Move pos/line/sline logic into a separate file.
+	- Move pos/line/sline logic into a separate module.
+	  Abstract over text ranges and positions. 
+
+	  [ Implicitly, all functions take 'text' 'width' as the first two arguments ]
+	  [ Implicitly, a position is only valid for a fixed Text+Width ]
+	  position = int 						Or does it also include an imaginary column? HMM?
+	  width = int
+	  range = (position, position)
+	  line_delta = (int, int)
+	  sline_delta = (int, int)
+	  line = range
+	  sline = range
+
+	  Position.from_pos int -> position   From a pos, get a position. [Internally, just store it -- pos is the canonical internal format]
+	  Position.to_pos position -> int     From a position, get a pos.
+	  Range.make string -> range	      From two positions, get a range
+	  Range.ends range -> (position * position)			From a range, get the start and end position
+	  Position.shift_chars position int -> position		From a position, add/subtract <n> characters -- use this to adjust cursors and views for actions
+	  Position.get_line position -> line				From a position, get a LINE or SLINE (which is/has a text range)
+	  Position.get_sline position -> sline
+	  Line.get_range line -> range
+	  Sline.get_range sline -> range
+
+	  Sline.Delta.make int int -> sline_delta
+	  Sline.Delta.lines sline_delta -> int
+	  Sline.Delta.cols sline_delta -> int
+
+	  Line.Delta.make int int -> line_delta
+	  Line.Delta.lines line_delta -> int
+	  Line.Delta.cols line_delta -> int
+
+	  Sline.shift position sline_delta -> position		From a position, adjust by LINES+COLS or SLINES+SCOLS and get a new position.
+	  Line.shift position line_delta -> position
+
+	  Sline.diff position position -> sline_delta       From two positions, calculate the LINES+COLS difference, or the SLINES+SCOLS difference.
+	  Line.diff position position -> line_delta
+
+	  Line.number line -> int							Get the line number of a LINE
+	  Sline.number_in_line sline -> int					Get the s-line number of a SLINE within its line
+
+	  Range.replace [text] [width] range string -> text	Provide a function to replace a text range with new text
+	  Range.get [text] [width] range -> string			Provide a function to get a text range within text
+
+	  Position.remap_on_replace [text] [width] range string position -> position	Shift cursors/view when text changes
+	  Position.remap_on_resize [text] [width] width position -> position			This actually just returns position (since we use pos representation)
+	  
+	  Sline.get_line sline -> line						Do we need these?
+	  Line.get_nth_sline line int -> sline
+	  													Do we need to represent "after the end of the document" or 
+
 [ ] Refactor pass - simplify each of those things
 [ ] Fix all known bugs
 [ ] Up/down should remember the "imaginary" column off the right end the cursor is on until the user types or presses left/right

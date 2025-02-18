@@ -12,6 +12,8 @@ let make_test ?printer : ('a * 'a) -> test = function
 let add_eq_tests ?printer (label: string) (tests: ('a * 'a) list) : unit =
     label >::: List.map (make_test ?printer) (List.rev tests) |> add_test
 
+let term = {cols=6+5; rows=4+4} (* Document size: 6 cols x 4 rows *)
+
 (* Printers *)
 let string_of_iit = function
     | (a, b) -> Printf.sprintf "(%d, %d)" a b
@@ -94,9 +96,10 @@ add_eq_tests "pos_of" [
    ((pos_of text1 3 6), 8);
 ]
 
+
 let () =
 let text1 = "iiiiiiiiixiii\niiiiiiiiixiiiiiiiiixiiiiiii\n"
-and viewport ?(terminal_size={rows=7;cols=6}) text view = 
+and viewport ?(terminal_size=term) text view =
     let fake_state text = { text; document_name=""; per_user=[] }
     and fake_local_state view = { view; move_since_cut=false; clipboard=""; uid=None; terminal_size; error=None; locked=false } in
     viewport (fake_state text) (fake_local_state view) in
@@ -187,8 +190,7 @@ add_eq_tests ~printer:string_of_iit "sline_difference" [
 ]
 
 let () =
-let text2="Hello, world.\nThis is the second line.\nThis is the third line.\nThis is the fourth line\nThis is the fifth line\n"
-and term = {rows=7; cols=6} in
+let text2="Hello, world.\nThis is the second line.\nThis is the third line.\nThis is the fourth line\nThis is the fifth line\n" in
 add_eq_tests ~printer:string_of_cursor_bound "cursor_in_viewport" [
     ((cursor_in_viewport text2 term 0 0), OnScreen);
     ((cursor_in_viewport text2 term 0 19), OnScreen);

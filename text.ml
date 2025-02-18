@@ -60,6 +60,7 @@ let init_local_state = {
 let clamp (x1:int) (x2:int) (x:int) : int = min (max x x1) x2
 let remove1 (i: int) : 'a list -> 'a list = List.filteri (fun j x -> j <> i)
 let compose f g x = f (g x) (* Support OCaml 4.14.1 *)
+let copies num x = List.init num (fun _ -> x)
 
 let get_cursor_unsafe (state: state) (local_state: local_state) : int = 
     (List.nth state.per_user (Option.get local_state.uid)).cursor (* Option.get should never throw, because local_state.uid should always be set when this is called *)
@@ -117,30 +118,33 @@ let printable_ascii = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTU
 let is_printable_ascii keystroke = String.length keystroke = 1 
     && String.get keystroke 0 |> String.contains printable_ascii
 let shortcuts = [
-    (["\b"; "\127"], None, None, Backspace);
-    (["\011"], Some "^K", Some "Cut", Cut);
-    (["\027[3~"], None, None, Del); 
-    (["\027[B"], None, None, Down);
-    (["\027[4~"; "\027[F"], None, None, End);
-    (["\r"], None, None, Key '\n'); (* Enter *)
-    (["\024"; "\022"], Some "C-x", Some "Exit", Exit); (* Ctrl-X or Ctrl-C. Note that Ctrl-C just exits with SIGINT currently. *)
-    (["\007"], Some "C-g", Some "Help", Help); (* Ctrl-G because Ctrl-H is backspace *)
-    (["\027[1~"; "\027[H"], None, None, Home);
-    (["\n"], Some "C-j", Some "Justify", Justify); (* Requires ~ICRNL terminal setting to tell apart from enter *)
-    (["\027[D"], None, None, Left);
-    (["\027[6~"], None, None, PageDown);
-    (["\027[5~"], None, None, PageUp);
-    (["\021"], Some "^U", Some "Paste", Paste);
-    (["\027[C"], None, None, Right);
-    (["\019"], Some "C-s", Some "Save", Save); (* Requires ~IXON terminal setting *)
-    (["\027[1;3B"], None, None, ScrollDown); (* Alt-Down *)
-    (["\027[1;3A"], None, None, ScrollUp); (* Alt-Up *)
-    (["\t"], None, None, Tab);
-    (["\027[A"], None, None, Up);
+    (* Shortcuts are here listed in priority order of how to show them in the help *)
+    (* input-bytes list / Help Display / enum-name *)
+    (["\024"; "\022"], Some ("C-x", "Exit"), Exit); (* Ctrl-X or Ctrl-C. Note that Ctrl-C just exits with SIGINT currently. *)
+    (["\019"], Some ("C-s", "Save"), Save); (* Requires ~IXON terminal setting *)
+    (["\021"], Some ("^U", "Paste"), Paste);
+    (["\011"], Some ("^K", "Cut"), Cut);
+    (["\027[1;3B"], None, ScrollDown); (* Alt-Down *)
+    (["\027[1;3A"], None, ScrollUp); (* Alt-Up *)
+    (["\007"], Some ("C-g", "Help"), Help); (* Ctrl-G because Ctrl-H is backspace *)
+    (["\n"], Some ("C-j", "Justify"), Justify); (* Requires ~ICRNL terminal setting to tell apart from enter *)
+
+    (["\027[6~"], None, PageDown);
+    (["\027[5~"], None, PageUp);
+    (["\027[1~"; "\027[H"], None, Home);
+    (["\027[4~"; "\027[F"], None, End);
+    (["\027[A"], None, Up);
+    (["\027[B"], None, Down);
+    (["\027[C"], None, Right);
+    (["\027[D"], None, Left);
+    (["\r"], None, Key '\n'); (* Enter *)
+    (["\t"], None, Tab);
+    (["\b"; "\127"], None, Backspace);
+    (["\027[3~"], None, Del); 
 ]
 
 let rec lookup_shortcut keystroke = function
-    | (ks, _, _, action) :: _ when List.mem keystroke ks -> Some action
+    | (ks, _, action) :: _ when List.mem keystroke ks -> Some action
     | _ :: l -> lookup_shortcut keystroke l
     | [] -> None
 
@@ -717,8 +721,6 @@ let display_viewport (width: int) (text: string) (color_of: int -> background_co
 let display_document width text color_of debug : string list =
     display_viewport width text color_of 0 ((String.length text)-1) debug
 
-let copies num x =
-    List.init num (fun _ -> x)
 let spacer_lines width num =
     copies num (String.make width ' ')
 

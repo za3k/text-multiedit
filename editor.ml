@@ -25,45 +25,18 @@ open Types
 
 let max_rows = 80
 
-let color_code : background_color -> string = function
-    | Black -> "40m" 
-    | Red -> "41;30m" 
-    | Green -> "42;30m" 
-    | Yellow -> "43;30m" 
-    | Blue -> "44;97m" 
-    | Magenta -> "45;30m" 
-    | Cyan -> "46;30m" 
-    | White -> "47;30m"
-    | BrightBlack -> "100;30m" 
-    | BrightRed -> "101;30m" 
-    | BrightGreen -> "102;30m" 
-    | BrightYellow -> "103;30m" 
-    | BrightBlue -> "104;97m" 
-    | BrightMagenta -> "105;30m" 
-    | BrightCyan -> "106;30m" 
-    | BrightWhite -> "107;30m"
+let editor_colors = [Red;Green;Yellow;Blue;Magenta;Cyan;White;BrightBlack;BrightRed;BrightGreen;BrightYellow;BrightBlue;BrightMagenta;BrightCyan;BrightWhite]
 
 let init_state = {
     text="  RAINBOWrainbowRAINBOW\nThis is the second line.\nThis is the third line.\nThis is the fourth line\nThis is the fifth line\n"; 
     document_name="test_file.txt";
-    per_user = [
-        { user="zachary"; cursor=0; color=Red;  };
-        { user="editor2"; cursor=2; color=Red; };
-        { user="editor3"; cursor=3; color=Green; };
-        { user="editor4"; cursor=4; color=Yellow; };
-        { user="editor5"; cursor=5; color=Blue; };
-        { user="editor6"; cursor=6; color=Magenta; };
-        { user="editor7"; cursor=7; color=Cyan; };
-        { user="editor8"; cursor=8; color=White; };
-        { user="editor9"; cursor=9; color=BrightBlack; };
-        { user="editor10"; cursor=10; color=BrightRed; };
-        { user="editor11"; cursor=11; color=BrightGreen; };
-        { user="editor12"; cursor=12; color=BrightYellow; };
-        { user="editor13"; cursor=13; color=BrightBlue; };
-        { user="editor14"; cursor=14; color=BrightMagenta; };
-        { user="editor15"; cursor=15; color=BrightCyan; };
-        { user="editor16"; cursor=16; color=BrightWhite; };
-    ]
+    per_user = 
+        { user="zachary"; cursor=0; color=Red;  }::
+        (List.mapi (fun i c -> { 
+            user=(Printf.sprintf "editor%d" (i+1));
+            cursor=2+i;
+            color=c
+        }) editor_colors);
 }
 
 let init_local_state = {
@@ -85,6 +58,10 @@ let rec any : 'a option list -> 'a option = function
     | Some x :: _ -> Some x
     | None :: l -> any l
 let option_or a b = any [a; b]
+let rec except_last : 'a list -> 'a list = function
+    | [] -> []
+    | a :: [] -> []
+    | h :: l -> h :: except_last l
 
 let get_cursor_unsafe (state: state) (local_state: local_state) : int = 
     (List.nth state.per_user (Option.get local_state.uid)).cursor (* Option.get should never throw, because local_state.uid should always be set when this is called *)
@@ -159,7 +136,7 @@ let split_send (actions: send_action list) : (send_local_action list * send_remo
     | Remote a -> Right a in
     List.partition_map either actions
 let has_remote actions =
-    split_send actions |> fst |> List.is_empty |> not
+    split_send actions |> snd |> (<>) []
     
 let insert offset str = [Remote(ReplaceText (offset, 0, str))]
 let delete offset len = [Remote(ReplaceText (offset, len, ""))]
@@ -371,14 +348,18 @@ let rec lookup_cursor_color (users: user_state list) (pos: int) : background_col
         | _ -> None
     ) users |> any
 
-let colorize (color: background_color) (s: string) : string =
-    "\027[" ^ (color_code color) ^ s ^ "\027[0m"
+let color_code : background_color -> string = function
+    | Black   -> "40m"    | BrightBlack   -> "100;30m" 
+    | Red     -> "41;30m" | BrightRed     -> "101;30m" 
+    | Green   -> "42;30m" | BrightGreen   -> "102;30m" 
+    | Yellow  -> "43;30m" | BrightYellow  -> "103;30m" 
+    | Blue    -> "44;97m" | BrightBlue    -> "104;97m" 
+    | Magenta -> "45;30m" | BrightMagenta -> "105;30m" 
+    | Cyan    -> "46;30m" | BrightCyan    -> "106;30m" 
+    | White   -> "47;30m" | BrightWhite   -> "107;30m"
+let colorize (color: background_color) : string -> string =
+    Printf.sprintf "\027[%s%s\027[0m" (color_code color)
         
-let rec except_last = function
-    | [] -> []
-    | a :: [] -> []
-    | h :: l -> h :: except_last l
-
 let display_viewport (width: int) (text: string) (color_of: int -> background_color option) 
                      (visible_range: int * int) (debug: bool): string list =
     let colorize_char (index: int) (c: char) =

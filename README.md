@@ -1,15 +1,15 @@
 TEXTMU - The complete list
 
 [x] Get a standalone binary (which will work on tilde)
-[ ] Move debug-only code into debug.ml (printing)
+[x] Move debug-only code into debug.ml (printing)
 [x] Move pos/line/sline logic into a separate file.
 [x] Cutting at the end of the file appends "\n" to the clipboard, and shouldn't
 [ ] Display
 	[x] Fork two display modes - debug (done) and regular (clone the current one)
 	[x] Display only visible lines
 	[x] KEEP line numbers (and make them all the same width)
-	[ ] Completely rewrite the screen each update
-			[ ] Avoid flicker -- During display, write each line separately (blanking as needed)
+	[x] Completely rewrite the screen each update
+    [x] Avoid flicker -- During display, write each line separately (blanking as needed)
 	[x] Remove s-line numbers
 	[ ] Add the line of users
 	[x] Add 2 help lines

@@ -466,7 +466,12 @@ let display_debug (state: state) (local_state: local_state) : unit =
     @ status_line text_width true state local_state
     @ display_help text_width in
 
-    print_endline (String.concat "\n" lines)
+    print_string (String.concat "\n" lines); flush stdout
+
+let print_lines lines = (* Print 25x 80-column lines *)
+    let print_line i line =
+        print_string (Printf.sprintf "\027[%d;0H%s" (i+1) line) in
+    List.iteri print_line lines; flush stdout
 
 let display (state: state) (local_state: local_state) : unit =
     let viewport = viewport state local_state and
@@ -480,8 +485,7 @@ let display (state: state) (local_state: local_state) : unit =
     @ status_line status_width false state local_state
     @ display_help status_width in
 
-    print_string "\027[2J\027[H"; (* Clear the screen *)
-    print_endline (String.concat "\n" lines)
+    print_lines lines
 
 (* [Go to step 1] *)
 (* Teardown:

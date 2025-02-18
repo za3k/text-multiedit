@@ -4,12 +4,12 @@ test: test.o
 	./$<; rm *.log *.cache
 clean:
 	rm -f *.cmi *.cmo *.o editor a.out *.cmx
-cloc: text.ml editor.ml
+cloc: text.ml editor.ml main.ml
 	cloc $^ | head -n6 | tail -n4
 # This warns about linking glibc statically -- switch to musl if wanted, or suppress the warning
-editor: text.ml editor.ml
+editor: text.ml editor.ml main.ml
 	ocamlopt -ccopt -static -I +unix unix.cmxa -o $@ $^ #2>&1 | grep -vE "requires at runtime|unix.n.o|libunixnat.a" || true
-test.o: text.ml test.ml
+test.o: text.ml editor.ml test.ml
 	ocamlfind ocamlc -linkpkg -package ounit2 -o $@ $^
 %.o: %.ml
 	ocamlc -o $@ $<

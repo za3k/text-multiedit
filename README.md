@@ -3,9 +3,7 @@ TEXTMU - The complete list
 [x] Get a standalone binary (which will work on tilde)
 [ ] Move debug-only code into debug.ml (printing)
 [ ] Move pos/line/sline logic into a separate file.
-[ ] Fix all known bugs
-	[ ] Up/down should remember the "imaginary" column off the right end the cursor is on until the user types or presses left/right
-	[ ] Cutting at the end of the file appends "\n" to the clipboard, and shouldn't
+[x] Cutting at the end of the file appends "\n" to the clipboard, and shouldn't
 [ ] Display
 	[x] Fork two display modes - debug (done) and regular (clone the current one)
 	[x] Display only visible lines
@@ -82,7 +80,8 @@ TEXTMU - The complete list
 	  Sline.get_line sline -> line						Do we need these?
 	  Line.get_nth_sline line int -> sline
 	  													Do we need to represent "after the end of the document" or 
-
+[ ] Fix all known bugs
+	[ ] Up/down should remember the "imaginary" column off the right end the cursor is on until the user types or presses left/right
 [ ] Scan the code and fix every place an exception can possibly be throwing, removing them one at a time
 [ ] Upload the finished binary to tilde as /bin/text
 [ ] Test multi-user editing

@@ -1,0 +1,3 @@
+open Editor
+
+let () = main ()

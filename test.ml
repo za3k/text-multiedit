@@ -1,3 +1,4 @@
+open Editor
 open Text
 open OUnit2
 

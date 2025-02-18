@@ -21,20 +21,15 @@
         connected users, creating the document if needed.
 *)
 
+open Types
+
 let max_rows = 80
 
-type background_color = 
-    | Black | Red | Green | Yellow | Blue | Magenta | Cyan | White 
-    | BrightBlack | BrightRed | BrightGreen | BrightYellow | BrightBlue | BrightMagenta | BrightCyan | BrightWhite
-    | Default
 let color_code : background_color -> string = function
     | Default -> "0m"
     | Black -> "40m" | Red -> "41m" | Green -> "42m" | Yellow -> "43m" | Blue -> "44m" | Magenta -> "45m" | Cyan -> "46m" | White -> "47m"
     | BrightBlack -> "100m" | BrightRed -> "101m" | BrightGreen -> "102m" | BrightYellow -> "103m" | BrightBlue -> "104m" | BrightMagenta -> "105m" | BrightCyan -> "106m" | BrightWhite -> "107m"
 
-type user_state = { user: string; cursor: int; color: background_color; }
-(* Invariant: text has a newline at the end *)
-type state = { text: string; document_name: string; per_user: user_state list }
 let init_state = {
     text="Hello, world.\nThis is the second line.\nThis is the third line.\nThis is the fourth line\nThis is the fifth line\n"; 
     document_name="test_file.txt";
@@ -44,9 +39,6 @@ let init_state = {
     ]
 }
 
-type view = int (* Indicates somewhere in the s-line which is the top of what you can see *)
-type terminal_size = { rows: int; cols: int }
-type local_state = { view: view; move_since_cut: bool; clipboard: string; uid: int option; terminal_size: terminal_size; error: string option; locked: bool }
 let init_local_state = {
     uid = Some 0;
     view = 7;
@@ -61,6 +53,11 @@ let remove1 (i: int) : 'a list -> 'a list = List.filteri (fun j x -> j <> i)
 let compose f g x = f (g x) (* Support OCaml 4.14.1 *)
 let copies num x = List.init num (fun _ -> x)
 let sum = List.fold_left (+) 0
+let rec any : 'a option list -> 'a option = function
+    | [] -> None
+    | Some x :: _ -> Some x
+    | None :: l -> any l
+let option_or a b = any [a; b]
 
 let get_cursor_unsafe (state: state) (local_state: local_state) : int = 
     (List.nth state.per_user (Option.get local_state.uid)).cursor (* Option.get should never throw, because local_state.uid should always be set when this is called *)
@@ -88,36 +85,9 @@ let get_keystroke () =
     res
 
 (* Step 2: Compute the [non-parameterized] action *)
-type button = 
-  | Backspace | Cut | Del | Down | End | Exit | Help | Home | Justify | Left | PageDown | PageUp | Paste | Right | Save | ScrollDown | ScrollUp | Tab | Up
-  | Key of char
-  | Unknown of string
-let string_of_button = function
-    | Backspace -> "<Backspace>"
-    | Cut -> "<Cut>"
-    | Del -> "<Del>"
-    | Down -> "<Down>"
-    | End -> "<End>"
-    | Exit -> "<Exit>"
-    | Help -> "<Help>"
-    | Home -> "<Home>"
-    | Justify -> "<Justify>"
-    | Left -> "<Left>"
-    | PageDown -> "<PageDown>"
-    | PageUp -> "<PageUp>"
-    | Paste -> "<Paste>"
-    | Right -> "<Right>"
-    | Save -> "<Save>"
-    | ScrollDown -> "<ScrollDown>"
-    | ScrollUp -> "<ScrollUp>"
-    | Tab -> "<Tab>"
-    | Up -> "<Up>"
-    | Key c -> Printf.sprintf "<Key '%s'>" (String.escaped (String.make 1 c))
-    | Unknown s -> Printf.sprintf "<Unknown \"%s\">" (String.escaped s)
 let printable_ascii = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~ " (* \n and \t are missing on purpose *)
-let is_printable_ascii keystroke = String.length keystroke = 1 
-    && String.get keystroke 0 |> String.contains printable_ascii
-let shortcuts = [
+let is_printable_ascii keystroke = String.length keystroke = 1 && String.get keystroke 0 |> String.contains printable_ascii
+let shortcuts : (string list * (string*string) option * button) list = [
     (* Shortcuts are here listed in priority order of how to show them in the help *)
     (* input-bytes list / Help Display / enum-name *)
     (["\024"; "\022"], Some ("C-x", "Exit"), Exit); (* Ctrl-X or Ctrl-C. Note that Ctrl-C just exits with SIGINT currently. *)
@@ -156,20 +126,6 @@ let get_button keystroke =
     
 
 (* Step 3: Compute the parameterized action (ex, move cursor from where to where) *)
-type send_local_action = 
-    | CopyText of string
-    | CutFlag of bool
-    | DisplayError of string option
-    | Exit
-    | Lock
-    | ShiftView of int
-type send_remote_action =
-    (* Remote only *)
-    | Save 
-    (* Remote, will be sent back by the server as receive_action *)
-    | OpenDocument of string * string
-    | ReplaceText of int * int * string
-type send_action = Local of send_local_action | Remote of send_remote_action
 let split_send (actions: send_action list) : (send_local_action list * send_remote_action list) =
     let either : (send_action -> (send_local_action, send_remote_action) Either.t) = function
     | Local a -> Left a
@@ -178,18 +134,6 @@ let split_send (actions: send_action list) : (send_local_action list * send_remo
 let has_remote actions =
     split_send actions |> fst |> List.is_empty |> not
     
-let string_of_send_action = function
-    | Remote Save -> "<Save>"
-    | Remote OpenDocument (u, d) -> Printf.sprintf "<OpenDocument \"%s\" \"%s\">" (String.escaped u) (String.escaped d)
-    | Remote ReplaceText (start, len, s) -> Printf.sprintf "<ReplaceText %d %d \"%s\">" start len (String.escaped s)
-    | Local CopyText s -> Printf.sprintf "<CopyText \"%s\">" (String.escaped s)
-    | Local CutFlag f -> Printf.sprintf "<CutFlag %s>" (Bool.to_string f)
-    | Local DisplayError None -> "<DisplayError OK>"
-    | Local DisplayError Some s -> Printf.sprintf "<DisplayError \"%s\">" (String.escaped s)
-    | Local ShiftView n -> Printf.sprintf "<ShiftView %d>" n
-    | Local Lock -> "<Lock>"
-    | Local Exit -> "<Exit>"
-
 let insert offset str = [Remote(ReplaceText (offset, 0, str))]
 let delete offset len = [Remote(ReplaceText (offset, len, ""))]
 let move_cursor offset = if offset = 0 then [] else [Remote(ReplaceText (offset, 0, ""))]
@@ -204,6 +148,12 @@ let cut append_move clipboard text pos line_start line_end =
         Remote(ReplaceText (line_start-pos, line_end-line_start+1, ""));
         Local(CutFlag true)
     ]
+let exit_action = Local Exit
+let lock = Local Lock
+let save = Remote Save
+let error x = Local (DisplayError (Some x))
+let no_error = Local (DisplayError None)
+let cut_flag x = Local (CutFlag x)
 
 (* There is a constraint that the cursor should always be inside the viewport.
 This is logic to deal with it. *)
@@ -211,13 +161,6 @@ This is logic to deal with it. *)
 let avail_height (terminal: terminal_size) : int = terminal.rows - 4 (* 2 rows for help, 1 for status bar, 1 for error line *)
 let status_width (terminal: terminal_size) : int = (min max_rows terminal.cols)
 let avail_cols   (terminal: terminal_size) : int = (status_width terminal) - 5 (* room for line number display *)
-type viewport = int * int
-
-type cursor_bound = | OnScreen | OffTop of int | OffBottom of int
-let string_of_cursor_bound = function 
-    | OnScreen -> "OnScreen"
-    | OffTop n -> Printf.sprintf "OffTop(%d)" n
-    | OffBottom n -> Printf.sprintf "OffBottom(%d)" n
 
 let viewport state local_state =
     let width = (avail_cols local_state.terminal_size)
@@ -297,31 +240,31 @@ let compute_actions (state: state) (local_state: local_state) button =
     | Home -> move_cursor (first-pos)
     | PageDown -> shift_cursor_and_view state local_state page_lines
     | PageUp ->   shift_cursor_and_view state local_state (-page_lines)
-    | Exit -> [Local Exit]
+    | Exit -> [exit_action]
     | Help -> [] (* TODO *)
     | Justify -> [] (* TODO *)
     | Left ->  move_cursor (-1)
     | Right -> move_cursor 1
     | Paste -> insert 0 clipboard
-    | Save -> [Remote Save]
+    | Save -> [save]
     | ScrollDown -> shift_view state local_state 1
     | ScrollUp ->   shift_view state local_state (-1)
     | Tab -> insert 0 "    "
     | Key c -> insert 0 (String.make 1 c)
-    | Unknown s -> [Local( DisplayError (Some (Printf.sprintf "Unknown key pressed: %s" s)) )]
+    | Unknown s -> [error (Printf.sprintf "Unknown key pressed: %s" s)]
     in let actions = actions @ match button with
     | Cut -> []
-    | _ -> [Local(CutFlag false)]
+    | _ -> [cut_flag false]
     in let actions = actions @ match button with
     | Unknown _ -> []
-    | _ -> [Local(DisplayError None)] 
-    in let actions = (if has_remote actions then [Local Lock] else []) @ actions
+    | _ -> [no_error] 
+    in let actions = (if has_remote actions then [lock] else []) @ actions
     in actions
 
 (* Step 4: Apply local state changes *)
 
 let apply_local_action (state: state) (local_state: local_state): send_local_action -> local_state = function
-    (*print_endline (Printf.sprintf "ApplyingLocal: %s" (string_of_send_action
+    (*print_endline (Printf.sprintf "ApplyingLocal: %s" (Debug.string_of_send_action
     action));*)
     | CopyText s -> { local_state with clipboard = s }
     | CutFlag b -> { local_state with move_since_cut = not b }
@@ -332,18 +275,6 @@ let apply_local_action (state: state) (local_state: local_state): send_local_act
 
 (* Step 5: Send the action to the server *)
 (* Step 6: Receive an action from the server *)
-type receive_action =  
-    | ReplaceText of int * int * int * string
-    | UserLeaves of int
-    | UserJoins of user_state
-    | SetUser of int
-    | Unlock
-let string_of_receive_action = function
-    | ReplaceText (uid, a, b, s) -> Printf.sprintf "ReplaceText[u=%d,%d,%d,\"%s\"]" uid a b (String.escaped s)
-    | UserLeaves uid -> Printf.sprintf "UserLeaves[u=%d]" uid
-    | UserJoins { user } -> Printf.sprintf "UserJoins[un=%s,...]" user
-    | SetUser uid -> Printf.sprintf "SetUser[u=%d]" uid
-    | Unlock -> "Unlock[]"
 
 let server_stub1 (uid : int option): (send_remote_action -> receive_action list) = function
     | ReplaceText (a,b,c) -> (match uid with
@@ -363,7 +294,7 @@ let server_stub (uid: int option) (actions: send_remote_action list) : receive_a
 *)
 
 let apply_remote_action (combined_state: state * local_state) : receive_action -> state * local_state = 
-    (*print_endline (Printf.sprintf "ApplyingRemote: %s" (string_of_receive_action action));*)
+    (*print_endline (Printf.sprintf "ApplyingRemote: %s" (Debug.string_of_receive_action action));*)
     let (state, local_state) = combined_state in
     function
     | ReplaceText (ed_uid, start, length, replacement) ->
@@ -406,12 +337,6 @@ let apply_remote_action (combined_state: state * local_state) : receive_action -
     8d: Display the shortcuts
 *)
 
-let rec any : 'a option list -> 'a option = function
-    | [] -> None
-    | Some x :: _ -> Some x
-    | None :: l -> any l
-let option_or a b = any [a; b]
-
 let rec lookup_cursor_color (users: user_state list) (pos: int) : background_color option = 
     (* { user="zachary"; cursor=2; color=Red;  }; *)
     List.map (function
@@ -428,9 +353,12 @@ let rec except_last = function
     | h :: l -> h :: except_last l
 
 let display_viewport (width: int) (text: string) (color_of: int -> background_color option) 
-                     (start_index: int) (last_index: int) (debug: bool): string list =
+                     (visible_range: int * int) (debug: bool): string list =
     let colorize_char (index: int) (c: char) =
-        if index < start_index || index > last_index then "" else (* Restrict to the viewport -- this is a bad way to do this *)
+        if (not debug) &&
+            (* Restrict to the viewport -- this is a bad way to do this *)
+           (index < (fst visible_range) || index > (snd visible_range))
+        then "" else
         let s = match c with
             | '\n' -> " "
             | _ -> String.make 1 c
@@ -452,7 +380,7 @@ let display_viewport (width: int) (text: string) (color_of: int -> background_co
                        Some (first, rest)) in
             let start_indices = map String.length slines |> scan (+) line_start in
             zip start_indices slines |> zip (ints 0) |> zip (repeat line_no))
-    |> concat |> map (function
+    |> concat |> filter_map (function
         | (line_no, (sline_no, (sline_start, sline))) ->
             let colorize = fun i c -> colorize_char (i+sline_start) c in
             let line_number = if sline_no = 0 then Printf.sprintf "%4d " (line_no + 1 - Bool.to_int debug) else "     " and
@@ -460,11 +388,12 @@ let display_viewport (width: int) (text: string) (color_of: int -> background_co
                 colorized_sline = (sline |> String.to_seq |> mapi colorize |> List.of_seq |> String.concat "") and
                 (* We have to pad horizontally here because of ANSI escape codes mucking with string lengths *)
                 padding = String.make (max 0 (width - (String.length sline))) ' ' in
-            line_number ^ sline_num ^ colorized_sline ^ padding)
+            if colorized_sline = "" then None else
+            line_number ^ sline_num ^ colorized_sline ^ padding |> Option.some)
     |> List.of_seq
 
 let display_document width text color_of debug : string list =
-    display_viewport width text color_of 0 ((String.length text)-1) debug
+    display_viewport width text color_of (0, Text.document_end text) debug
 
 let spacer_lines width num =
     copies num (String.make width ' ')
@@ -522,35 +451,33 @@ let display_help width : string list =
     in
     List.find_map display_all sublists |> Option.value ~default:["";""]
 
-let display_debug (state: state) (local_state: local_state) : unit =
-    let color_cursor = lookup_cursor_color state.per_user in
-    let visible = in_viewport (viewport state local_state) in
-    let color_viewport p = match visible p with
-        | true -> Some Blue
-        | false -> None in
-    let color p = any [color_cursor p; color_viewport p] in
-    let width = (avail_cols local_state.terminal_size) in
+let status_line width debug state local_state =
+    [display_cursors state ^ display_view state local_state]
 
-    let lines = [""] @ display_document width state.text color true
-    @ [display_cursors state ^ display_view state local_state]
-    @ display_help width in
+let display_debug (state: state) (local_state: local_state) : unit =
+    let visible = in_viewport (viewport state local_state) and
+        text_width = (avail_cols local_state.terminal_size) in
+    let color p = any [
+        lookup_cursor_color state.per_user p;
+        if visible p then Some Blue else None
+    ] in
+
+    let lines = [""] @ display_document text_width state.text color true
+    @ status_line text_width true state local_state
+    @ display_help text_width in
 
     print_endline (String.concat "\n" lines)
 
 let display (state: state) (local_state: local_state) : unit =
-    let color_cursor = lookup_cursor_color state.per_user in
-    let visible = in_viewport (viewport state local_state) in
-    let color_viewport p = match visible p with
-        | true -> Some Blue
-        | false -> None in
-    let color p = any [color_cursor p; color_viewport p] and
+    let viewport = viewport state local_state and
+        color = lookup_cursor_color state.per_user and
         text_width = avail_cols local_state.terminal_size and
         status_width = status_width local_state.terminal_size and
         height = avail_height local_state.terminal_size in
-    let display_lines = display_document text_width state.text color false in
+    let display_lines = display_viewport text_width state.text color viewport false in
     let lines = display_lines
-    @ spacer_lines status_width (height - (List.length display_lines))
-    @ [display_cursors state ^ display_view state local_state]
+    @ spacer_lines status_width (max (height - (List.length display_lines)) 0)
+    @ status_line status_width false state local_state
     @ display_help status_width in
 
     print_string "\027[2J\027[H"; (* Clear the screen *)
@@ -594,9 +521,9 @@ let client_main (client_args: client_args) : unit =
         let keystroke = get_keystroke() in
             ps (Printf.sprintf "\"%s\" || " (String.escaped keystroke));
         let button = get_button keystroke in
-            ps @@ string_of_button button ^ " || ";
+            ps @@ Debug.string_of_button button ^ " || ";
         let actions = compute_actions !state !local_state button in
-            ps @@ String.concat "" (List.map string_of_send_action actions); ps "\n";
+            ps @@ String.concat "" (List.map Debug.string_of_send_action actions); ps "\n";
         let (local, remote) = split_send actions in
         local_state := List.fold_left (apply_local_action !state) !local_state local;
         let msgs = server_stub !local_state.uid remote in

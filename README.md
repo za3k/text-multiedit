@@ -2,7 +2,7 @@ TEXTMU - The complete list
 
 [x] Get a standalone binary (which will work on tilde)
 [ ] Move debug-only code into debug.ml (printing)
-[ ] Move pos/line/sline logic into a separate file.
+[x] Move pos/line/sline logic into a separate file.
 [x] Cutting at the end of the file appends "\n" to the clipboard, and shouldn't
 [ ] Display
 	[x] Fork two display modes - debug (done) and regular (clone the current one)

@@ -33,9 +33,10 @@ let color_code : background_color -> string = function
     | BrightBlack -> "100m" | BrightRed -> "101m" | BrightGreen -> "102m" | BrightYellow -> "103m" | BrightBlue -> "104m" | BrightMagenta -> "105m" | BrightCyan -> "106m" | BrightWhite -> "107m"
 
 type user_state = { user: string; cursor: int; color: background_color; }
+(* Invariant: text has a newline at the end *)
 type state = { text: string; document_name: string; per_user: user_state list }
 let init_state = {
-    text="Hello, world.\nThis is the second line.\nThis is the third line.\nThis is the fourth line\nThis is the fifth line\n"; (* Invariant: every file has a newline at the end *)
+    text="Hello, world.\nThis is the second line.\nThis is the third line.\nThis is the fourth line\nThis is the fifth line\n"; 
     document_name="test_file.txt";
     per_user = [
         { user="zachary"; cursor=2; color=Red;  };
@@ -43,7 +44,7 @@ let init_state = {
     ]
 }
 
-type view = int (* Should be the start of a s-line after any view adjustment *)
+type view = int (* Indicates somewhere in the s-line which is the top of what you can see *)
 type terminal_size = { rows: int; cols: int }
 type local_state = { view: view; move_since_cut: bool; clipboard: string; uid: int option; terminal_size: terminal_size; error: string option; locked: bool }
 let init_local_state = {

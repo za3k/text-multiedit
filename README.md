@@ -2,17 +2,17 @@ TEXTMU - The complete list
 
 [x] Get a standalone binary (which will work on tilde)
 [ ] Write a list of things to simplify in the code
-[ ] Refactor pass - simpligy each of those things
+[ ] Refactor pass - simplify each of those things
 [ ] Fix all known bugs
 [ ] Up/down should remember the "imaginary" column off the right end the cursor is on until the user types or presses left/right
 [ ] Cutting at the end of the file appends "\n" to the clipboard, and shouldn't
 [ ] Display
 	[x] Fork two display modes - debug (done) and regular (clone the current one)
 	[ ] Display only visible lines
-	[ ] KEEP line numbers (and make them all the same width)
+	[x] KEEP line numbers (and make them all the same width)
 	[ ] Completely rewrite the screen each update
 			[ ] Avoid flicker -- During display, write each line separately (blanking as needed)
-	[ ] Remove s-line numbers
+	[x] Remove s-line numbers
 	[ ] Add the line of users
 	[ ] Add 2 help lines
 	[ ] Add an error message display

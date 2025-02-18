@@ -61,6 +61,7 @@ let clamp (x1:int) (x2:int) (x:int) : int = min (max x x1) x2
 let remove1 (i: int) : 'a list -> 'a list = List.filteri (fun j x -> j <> i)
 let compose f g x = f (g x) (* Support OCaml 4.14.1 *)
 let copies num x = List.init num (fun _ -> x)
+let sum = List.fold_left (+) 0
 
 let get_cursor_unsafe (state: state) (local_state: local_state) : int = 
     (List.nth state.per_user (Option.get local_state.uid)).cursor (* Option.get should never throw, because local_state.uid should always be set when this is called *)
@@ -122,10 +123,10 @@ let shortcuts = [
     (* input-bytes list / Help Display / enum-name *)
     (["\024"; "\022"], Some ("C-x", "Exit"), Exit); (* Ctrl-X or Ctrl-C. Note that Ctrl-C just exits with SIGINT currently. *)
     (["\019"], Some ("C-s", "Save"), Save); (* Requires ~IXON terminal setting *)
-    (["\021"], Some ("^U", "Paste"), Paste);
-    (["\011"], Some ("^K", "Cut"), Cut);
-    (["\027[1;3B"], None, ScrollDown); (* Alt-Down *)
-    (["\027[1;3A"], None, ScrollUp); (* Alt-Up *)
+    (["\021"], Some ("C-u", "Paste"), Paste);
+    (["\011"], Some ("C-k", "Cut"), Cut);
+    (["\027[1;3B"], Some ("A-↓", "Scroll Down"), ScrollDown); (* Alt-Down *)
+    (["\027[1;3A"], Some ("A-↑", "Scroll Up"), ScrollUp); (* Alt-Up *)
     (["\007"], Some ("C-g", "Help"), Help); (* Ctrl-G because Ctrl-H is backspace *)
     (["\n"], Some ("C-j", "Justify"), Justify); (* Requires ~ICRNL terminal setting to tell apart from enter *)
 
@@ -735,7 +736,47 @@ let display_view state local_state : string =
     Printf.sprintf " Viewport %d-%d [%d] " vs ve local_state.view |> colorize Blue
 
 let display_help width : string list =
-    ["HELP WOULD GO HERE"; "(more help)"]
+    let second = function (a, b, c) -> b in
+    let rec consecutive_pairs default = function
+        | [] -> []
+        | [a] -> [(a, default)]
+        | a :: b :: l -> (a, b) :: consecutive_pairs default l in
+    let rec prefixes = function
+        | [] -> []
+        | _ :: l as all -> all :: (prefixes l) in
+    let pad_shorter s1 s2 = 
+        match (String.length s1, String.length s2) with
+        | (a, b) when a = b -> (s1, s2)
+        | (a, b) when a < b -> (s1 ^ (String.make (b-a) ' '), s2)
+        | (a, b)            -> (s1, s2 ^ (String.make (a-b) ' ')) in
+
+    let equalize = function ((s1, n1), (s2, n2)) ->
+        let (s1, s2) = pad_shorter s1 s2 and
+            (n1, n2) = pad_shorter n1 n2 in
+        ((s1, n1), (s2, n2)) in
+    let bit_for = function
+        | (shortcut, name) -> 
+            (((String.length shortcut) + (String.length name) + 1), 
+             (colorize Blue shortcut) ^ " " ^ name) in
+
+    let shortcuts = List.filter_map second shortcuts in
+    let sublists = prefixes @@ List.map equalize @@ consecutive_pairs ("","") shortcuts in
+    let display_all cuts : string list option =
+        (* Assume we can display every shortcut, then try to do it. *)
+        let min_padding = 2 and
+            count = List.length cuts and
+            line1 = List.map fst cuts |> List.map bit_for and
+            line2 = List.map snd cuts |> List.map bit_for in
+        let min_size = List.map (fun x -> (fst x)+min_padding) line1 |> sum and
+            line1 = List.map snd line1 and
+            line2 = List.map snd line2 in
+        (* Check the line lengths -- are they too long? If so, return None *)
+        if min_size > width then None else
+        let padding = String.make ((width - min_size) / count) ' ' in
+        List.map (String.concat padding) [line1; line2]
+        |> Option.some
+    in
+    List.find_map display_all sublists |> Option.value ~default:["";""]
 
 let display_debug (state: state) (local_state: local_state) : unit =
     let color_cursor = lookup_cursor_color state.per_user in

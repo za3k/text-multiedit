@@ -66,7 +66,7 @@ TEXTMU - The complete list
 			[ ] Avoid flicker -- During display, write each line separately (blanking as needed)
 	[x] Remove s-line numbers
 	[ ] Add the line of users
-	[ ] Add 2 help lines
+	[x] Add 2 help lines
 	[ ] Add an error message display
 	[/] Reset the screen 'on\_exit'
 	[ ] Improve background/foreground color pairs

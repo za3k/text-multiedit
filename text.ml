@@ -51,7 +51,7 @@ let init_local_state = {
     uid = Some 0;
     view = 7;
     move_since_cut = true;
-    terminal_size = { rows=25; cols=80 };
+    terminal_size = { rows=25; cols=75 };
     clipboard = "";
     locked = false;
     error = None;

@@ -11,11 +11,11 @@ TEXTMU - The complete list
 	[x] Completely rewrite the screen each update
     [x] Avoid flicker -- During display, write each line separately (blanking as needed)
 	[x] Remove s-line numbers
-	[ ] Add the line of users
 	[x] Add 2 help lines
+	[x] Improve background/foreground color pairs
+	[ ] Add the line of users
 	[ ] Add an error message display
 	[/] Reset the screen 'on\_exit'
-	[ ] Improve background/foreground color pairs
 [ ] In-Channels 
 	[ ] Write them (file-backed, reads a specific type, notes whether it's ready to read or not)
 	[ ] Add a way to listen for a list of In-Channels to be ready
@@ -80,6 +80,7 @@ TEXTMU - The complete list
 	  Sline.get_line sline -> line						Do we need these?
 	  Line.get_nth_sline line int -> sline
 	  													Do we need to represent "after the end of the document" or 
+[ ] Add a "colored string" type to simplify display + padding logic
 [ ] Fix all known bugs
 	[ ] Up/down should remember the "imaginary" column off the right end the cursor is on until the user types or presses left/right
 [ ] Scan the code and fix every place an exception can possibly be throwing, removing them one at a time

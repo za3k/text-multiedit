@@ -26,16 +26,43 @@ open Types
 let max_rows = 80
 
 let color_code : background_color -> string = function
-    | Default -> "0m"
-    | Black -> "40m" | Red -> "41m" | Green -> "42m" | Yellow -> "43m" | Blue -> "44m" | Magenta -> "45m" | Cyan -> "46m" | White -> "47m"
-    | BrightBlack -> "100m" | BrightRed -> "101m" | BrightGreen -> "102m" | BrightYellow -> "103m" | BrightBlue -> "104m" | BrightMagenta -> "105m" | BrightCyan -> "106m" | BrightWhite -> "107m"
+    | Black -> "40m" 
+    | Red -> "41;30m" 
+    | Green -> "42;30m" 
+    | Yellow -> "43;30m" 
+    | Blue -> "44;97m" 
+    | Magenta -> "45;30m" 
+    | Cyan -> "46;30m" 
+    | White -> "47;30m"
+    | BrightBlack -> "100;30m" 
+    | BrightRed -> "101;30m" 
+    | BrightGreen -> "102;30m" 
+    | BrightYellow -> "103;30m" 
+    | BrightBlue -> "104;97m" 
+    | BrightMagenta -> "105;30m" 
+    | BrightCyan -> "106;30m" 
+    | BrightWhite -> "107;30m"
 
 let init_state = {
-    text="Hello, world.\nThis is the second line.\nThis is the third line.\nThis is the fourth line\nThis is the fifth line\n"; 
+    text="  RAINBOWrainbowRAINBOW\nThis is the second line.\nThis is the third line.\nThis is the fourth line\nThis is the fifth line\n"; 
     document_name="test_file.txt";
     per_user = [
-        { user="zachary"; cursor=2; color=Red;  };
-        { user="editor2"; cursor=11; color=BrightMagenta; };
+        { user="zachary"; cursor=0; color=Red;  };
+        { user="editor2"; cursor=2; color=Red; };
+        { user="editor3"; cursor=3; color=Green; };
+        { user="editor4"; cursor=4; color=Yellow; };
+        { user="editor5"; cursor=5; color=Blue; };
+        { user="editor6"; cursor=6; color=Magenta; };
+        { user="editor7"; cursor=7; color=Cyan; };
+        { user="editor8"; cursor=8; color=White; };
+        { user="editor9"; cursor=9; color=BrightBlack; };
+        { user="editor10"; cursor=10; color=BrightRed; };
+        { user="editor11"; cursor=11; color=BrightGreen; };
+        { user="editor12"; cursor=12; color=BrightYellow; };
+        { user="editor13"; cursor=13; color=BrightBlue; };
+        { user="editor14"; cursor=14; color=BrightMagenta; };
+        { user="editor15"; cursor=15; color=BrightCyan; };
+        { user="editor16"; cursor=16; color=BrightWhite; };
     ]
 }
 
@@ -43,7 +70,7 @@ let init_local_state = {
     uid = Some 0;
     view = 7;
     move_since_cut = true;
-    terminal_size = { rows=25; cols=75 };
+    terminal_size = { rows=25; cols=80 };
     clipboard = "";
     locked = false;
     error = None;

@@ -455,8 +455,9 @@ let sline_add (width: int) (text: string) (pos: int) (delta: sline_delta) : int 
 (* There is a constraint that the cursor should always be inside the viewport.
 This is logic to deal with it. *)
 
-let avail_height (terminal: terminal_size) : int = terminal.rows - 3
-let avail_cols   (terminal: terminal_size) : int = min max_rows terminal.cols
+let avail_height (terminal: terminal_size) : int = terminal.rows - 4 (* 2 rows for help, 1 for status bar, 1 for error line *)
+let status_width (terminal: terminal_size) : int = (min max_rows terminal.cols)
+let avail_cols   (terminal: terminal_size) : int = (status_width terminal) - 5 (* room for line number display *)
 type viewport = int * int
 
 type cursor_bound = | OnScreen | OffTop of int | OffBottom of int
@@ -675,8 +676,10 @@ let rec except_last = function
     | a :: [] -> []
     | h :: l -> h :: except_last l
 
-let display_document (width: int) (text: string) (color_of: int -> background_color option) : string list =
+let display_viewport (width: int) (text: string) (color_of: int -> background_color option) 
+                     (start_index: int) (last_index: int) (debug: bool): string list =
     let colorize_char (index: int) (c: char) =
+        if index < start_index || index > last_index then "" else (* Restrict to the viewport -- this is a bad way to do this *)
         let s = match c with
             | '\n' -> " "
             | _ -> String.make 1 c
@@ -701,11 +704,21 @@ let display_document (width: int) (text: string) (color_of: int -> background_co
     |> concat |> map (function
         | (line_no, (sline_no, (sline_start, sline))) ->
             let colorize = fun i c -> colorize_char (i+sline_start) c in
-            (if sline_no = 0 then Printf.sprintf "%2d " line_no else "   ") ^
-            Printf.sprintf "%2d " sline_no ^
-            (sline |> String.to_seq |> mapi colorize |> List.of_seq |> String.concat "") ^
-            "\n")
-    |> List.of_seq |> String.concat "" |> String.split_on_char '\n'
+            let line_number = if sline_no = 0 then Printf.sprintf "%4d " (line_no + 1 - Bool.to_int debug) else "     " and
+                sline_num = if debug then Printf.sprintf "%2d " sline_no else "" and
+                colorized_sline = (sline |> String.to_seq |> mapi colorize |> List.of_seq |> String.concat "") and
+                (* We have to pad horizontally here because of ANSI escape codes mucking with string lengths *)
+                padding = String.make (max 0 (width - (String.length sline))) ' ' in
+            line_number ^ sline_num ^ colorized_sline ^ padding)
+    |> List.of_seq
+
+let display_document width text color_of debug : string list =
+    display_viewport width text color_of 0 ((String.length text)-1) debug
+
+let copies num x =
+    List.init num (fun _ -> x)
+let spacer_lines width num =
+    copies num (String.make width ' ')
 
 let display_cursors state : string =
     state.per_user |> List.map (function
@@ -720,9 +733,6 @@ let display_view state local_state : string =
 let display_help width : string list =
     ["HELP WOULD GO HERE"; "(more help)"]
 
-let spacer_lines num_lines width =
-    List.init num_lines (fun _ -> (String.make width ' ' width))
-
 let display_debug (state: state) (local_state: local_state) : unit =
     let color_cursor = lookup_cursor_color state.per_user in
     let visible = in_viewport (viewport state local_state) in
@@ -732,7 +742,7 @@ let display_debug (state: state) (local_state: local_state) : unit =
     let color p = any [color_cursor p; color_viewport p] in
     let width = (avail_cols local_state.terminal_size) in
 
-    let lines = [""] @ display_document width state.text color
+    let lines = [""] @ display_document width state.text color true
     @ [display_cursors state ^ display_view state local_state]
     @ display_help width in
 
@@ -744,14 +754,15 @@ let display (state: state) (local_state: local_state) : unit =
     let color_viewport p = match visible p with
         | true -> Some Blue
         | false -> None in
-    let color p = any [color_cursor p; color_viewport p] in
-    let width = (avail_cols local_state.terminal_size) in
-    let height = (avail_height local_state.terminal_size) in
-    let lines = display_document width state.text color in
-    let lines = lines 
-    @ spacer_lines (height - (List.length lines)) width
+    let color p = any [color_cursor p; color_viewport p] and
+        text_width = avail_cols local_state.terminal_size and
+        status_width = status_width local_state.terminal_size and
+        height = avail_height local_state.terminal_size in
+    let display_lines = display_document text_width state.text color false in
+    let lines = display_lines
+    @ spacer_lines status_width (height - (List.length display_lines))
     @ [display_cursors state ^ display_view state local_state]
-    @ display_help width in
+    @ display_help status_width in
 
     print_string "\027[2J\027[H"; (* Clear the screen *)
     print_endline (String.concat "\n" lines)
@@ -768,17 +779,16 @@ type client_args = {
 }
 let client_main (client_args: client_args) : unit =
     (* Terminal stuff for start/exit *)
-    let reset () : unit = print_string "\027[?1049l\027[?25h" in 
-    (* Save terminal, home the cursor *)
-    at_exit reset;
-    print_string "\027[?1049h\027[H"; (* Restore the terminal *)
-    print_string "\027[?25l"; (* Hide the cursor *)
+    (* Restore the terminal, show the cursor *)
+    let reset () : unit = print_string "\027[?1049l\027[?25h" in at_exit reset;
+    (* Save terminal, home the cursor, hide the cursor *)
+    print_string "\027[?1049h\027[H\027[?25l"; 
     Sys.set_signal Sys.sigint (Signal_handle (function | _ -> exit 0));
 
     (* Setup of the client *)
     let local_state = ref init_local_state in
     if client_args.debug then
-        local_state := { !local_state with terminal_size = { rows=7; cols=6 } }
+        local_state := { !local_state with terminal_size = { rows=7; cols=11 } }
     else ();
     let state = ref init_state in
 
@@ -788,20 +798,18 @@ let client_main (client_args: client_args) : unit =
         - Terminal resize events (SIGWINCH)
         - User keyboard input
     *)
+    let ps = if client_args.debug then print_string else (fun _ -> ()) in
     while true do
         (if client_args.debug then display_debug else display)
             !state !local_state;
         let keystroke = get_keystroke() in
-            print_string (Printf.sprintf "\"%s\" || " (String.escaped keystroke));
+            ps (Printf.sprintf "\"%s\" || " (String.escaped keystroke));
         let button = get_button keystroke in
-            string_of_button button |> print_string; print_string " || ";
+            ps @@ string_of_button button ^ " || ";
         let actions = compute_actions !state !local_state button in
-            print_endline (String.concat "" (List.map string_of_send_action actions));
-            (*print_string "Local: "; print_endline (String.concat "" (List.map string_of_send_action (local_only actions)));*)
+            ps @@ String.concat "" (List.map string_of_send_action actions); ps "\n";
         local_state := List.fold_left (apply_local_action !state) !local_state (local_only actions);
-            (*print_string "Sent to server: "; print_endline (String.concat "" (List.map string_of_send_action (remote_only actions)));*)
         let msgs = server_stub !local_state.uid (remote_only actions) in
-            (*print_string "Received from server: "; print_endline (String.concat "" (List.map string_of_receive_action msgs));*)
         let (s, ls) = List.fold_left apply_remote_action (!state, !local_state) msgs in
         state := s;
         local_state := ls

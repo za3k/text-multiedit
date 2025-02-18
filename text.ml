@@ -59,7 +59,7 @@ let init_local_state = {
 
 let clamp (x1:int) (x2:int) (x:int) : int = min (max x x1) x2
 let remove1 (i: int) : 'a list -> 'a list = List.filteri (fun j x -> j <> i)
-let compose f g x = f (g x)
+let compose f g x = f (g x) (* Support OCaml 4.14.1 *)
 
 let get_cursor_unsafe (state: state) (local_state: local_state) : int = 
     (List.nth state.per_user (Option.get local_state.uid)).cursor (* Option.get should never throw, because local_state.uid should always be set when this is called *)
@@ -152,48 +152,51 @@ let get_button keystroke =
     
 
 (* Step 3: Compute the parameterized action (ex, move cursor from where to where) *)
-type send_action =
-    (* Remote only *)
-    | Save 
-    (* Remote, will be sent back as local *)
-    | OpenDocument of string * string
-    | ReplaceText of int * int * string
-    (* Local only *)
+type send_local_action = 
     | CopyText of string
     | CutFlag of bool
     | DisplayError of string option
     | Exit
     | Lock
     | ShiftView of int
-let is_local = function
-    | CopyText _ | CutFlag _ | DisplayError _  | Exit | Lock | ShiftView _ -> true
-    | _ -> false
-let is_remote = compose not is_local (* Support OCaml 4.14.1 *)
-let local_only = List.filter is_local
-let remote_only = List.filter is_remote
+type send_remote_action =
+    (* Remote only *)
+    | Save 
+    (* Remote, will be sent back by the server as receive_action *)
+    | OpenDocument of string * string
+    | ReplaceText of int * int * string
+type send_action = Local of send_local_action | Remote of send_remote_action
+let split_send (actions: send_action list) : (send_local_action list * send_remote_action list) =
+    let either : (send_action -> (send_local_action, send_remote_action) Either.t) = function
+    | Local a -> Left a
+    | Remote a -> Right a in
+    List.partition_map either actions
+let has_remote actions =
+    split_send actions |> fst |> List.is_empty |> not
+    
 let string_of_send_action = function
-    | Save -> "<Save>"
-    | OpenDocument (u, d) -> Printf.sprintf "<OpenDocument \"%s\" \"%s\">" (String.escaped u) (String.escaped d)
-    | ReplaceText (start, len, s) -> Printf.sprintf "<ReplaceText %d %d \"%s\">" start len (String.escaped s)
-    | CopyText s -> Printf.sprintf "<CopyText \"%s\">" (String.escaped s)
-    | CutFlag f -> Printf.sprintf "<CutFlag %s>" (Bool.to_string f)
-    | DisplayError None -> "<DisplayError OK>"
-    | DisplayError Some s -> Printf.sprintf "<DisplayError \"%s\">" (String.escaped s)
-    | ShiftView n -> Printf.sprintf "<ShiftView %d>" n
-    | Lock -> "<Lock>"
-    | Exit -> "<Exit>"
+    | Remote Save -> "<Save>"
+    | Remote OpenDocument (u, d) -> Printf.sprintf "<OpenDocument \"%s\" \"%s\">" (String.escaped u) (String.escaped d)
+    | Remote ReplaceText (start, len, s) -> Printf.sprintf "<ReplaceText %d %d \"%s\">" start len (String.escaped s)
+    | Local CopyText s -> Printf.sprintf "<CopyText \"%s\">" (String.escaped s)
+    | Local CutFlag f -> Printf.sprintf "<CutFlag %s>" (Bool.to_string f)
+    | Local DisplayError None -> "<DisplayError OK>"
+    | Local DisplayError Some s -> Printf.sprintf "<DisplayError \"%s\">" (String.escaped s)
+    | Local ShiftView n -> Printf.sprintf "<ShiftView %d>" n
+    | Local Lock -> "<Lock>"
+    | Local Exit -> "<Exit>"
 
-let insert offset str = [ReplaceText (offset, 0, str)]
-let delete offset len = [ReplaceText (offset, len, "")]
-let move_cursor offset = if offset = 0 then [] else [ReplaceText (offset, 0, "")]
-let move_view offset = if offset = 0 then [] else [ShiftView offset]
+let insert offset str = [Remote(ReplaceText (offset, 0, str))]
+let delete offset len = [Remote(ReplaceText (offset, len, ""))]
+let move_cursor offset = if offset = 0 then [] else [Remote(ReplaceText (offset, 0, ""))]
+let move_view offset = if offset = 0 then [] else [Local(ShiftView offset)]
 let cut append_move clipboard text pos line_start line_end = 
     let new_text = String.sub text line_start (line_end-line_start+1) in
     let clipboard = if append_move then clipboard ^ new_text else new_text in
     [
-        CopyText clipboard;
-        ReplaceText (line_start-pos, line_end-line_start+1, "");
-        CutFlag true
+        Local(CopyText clipboard);
+        Remote(ReplaceText (line_start-pos, line_end-line_start+1, ""));
+        Local(CutFlag true)
     ]
 
 
@@ -545,30 +548,30 @@ let compute_actions (state: state) (local_state: local_state) button =
     | Home -> move_cursor (first-pos)
     | PageDown -> shift_cursor_and_view state local_state page_lines
     | PageUp ->   shift_cursor_and_view state local_state (-page_lines)
-    | Exit -> [Exit]
+    | Exit -> [Local Exit]
     | Help -> [] (* TODO *)
     | Justify -> [] (* TODO *)
     | Left ->  move_cursor (-1)
     | Right -> move_cursor 1
     | Paste -> insert 0 clipboard
-    | Save -> [Save]
+    | Save -> [Remote Save]
     | ScrollDown -> shift_view state local_state 1
     | ScrollUp ->   shift_view state local_state (-1)
     | Tab -> insert 0 "    "
     | Key c -> insert 0 (String.make 1 c)
-    | Unknown s -> [DisplayError (Some (Printf.sprintf "Unknown key pressed: %s" s))]
+    | Unknown s -> [Local( DisplayError (Some (Printf.sprintf "Unknown key pressed: %s" s)) )]
     in let actions = actions @ match button with
     | Cut -> []
-    | _ -> [CutFlag false] 
+    | _ -> [Local(CutFlag false)]
     in let actions = actions @ match button with
     | Unknown _ -> []
-    | _ -> [DisplayError None] 
-    in let actions = (if List.exists is_remote actions then [Lock] else []) @ actions
+    | _ -> [Local(DisplayError None)] 
+    in let actions = (if has_remote actions then [Local Lock] else []) @ actions
     in actions
 
 (* Step 4: Apply local state changes *)
 
-let apply_local_action (state: state) (local_state: local_state): send_action -> local_state = function
+let apply_local_action (state: state) (local_state: local_state): send_local_action -> local_state = function
     (*print_endline (Printf.sprintf "ApplyingLocal: %s" (string_of_send_action
     action));*)
     | CopyText s -> { local_state with clipboard = s }
@@ -577,7 +580,6 @@ let apply_local_action (state: state) (local_state: local_state): send_action ->
     | Exit -> exit 0
     | Lock -> { local_state with locked = true }
     | ShiftView d -> { local_state with view = local_state.view + d }
-    | _ -> local_state
 
 (* Step 5: Send the action to the server *)
 (* Step 6: Receive an action from the server *)
@@ -594,14 +596,13 @@ let string_of_receive_action = function
     | SetUser uid -> Printf.sprintf "SetUser[u=%d]" uid
     | Unlock -> "Unlock[]"
 
-let server_stub1 (uid : int option): (send_action -> receive_action list) = function
+let server_stub1 (uid : int option): (send_remote_action -> receive_action list) = function
     | ReplaceText (a,b,c) -> (match uid with
         | Some uid -> [ReplaceText (uid,a,b,c)]
         | None -> [] )
     | OpenDocument (document, username) -> [UserJoins { user=username; cursor=0; color=Red }; SetUser 0] (* TODO *)
     | Save -> [] (* Doesn't happen in stub *)
-    | _ -> [] (* Local events are never sent *)
-let server_stub (uid: int option) (actions: send_action list) : receive_action list = 
+let server_stub (uid: int option) (actions: send_remote_action list) : receive_action list = 
     List.concat_map (server_stub1 uid) actions @ if actions = [] then [] else [Unlock]
 
 (* Step 7: Transform the state based on the action
@@ -809,8 +810,9 @@ let client_main (client_args: client_args) : unit =
             ps @@ string_of_button button ^ " || ";
         let actions = compute_actions !state !local_state button in
             ps @@ String.concat "" (List.map string_of_send_action actions); ps "\n";
-        local_state := List.fold_left (apply_local_action !state) !local_state (local_only actions);
-        let msgs = server_stub !local_state.uid (remote_only actions) in
+        let (local, remote) = split_send actions in
+        local_state := List.fold_left (apply_local_action !state) !local_state local;
+        let msgs = server_stub !local_state.uid remote in
         let (s, ls) = List.fold_left apply_remote_action (!state, !local_state) msgs in
         state := s;
         local_state := ls

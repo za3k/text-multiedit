@@ -72,6 +72,8 @@ let prefixes l = (* In order from biggest to smallest *)
 let get_cursor_unsafe (state: state) (local_state: local_state) : int = 
     (List.nth state.per_user (Option.get local_state.uid)).cursor (* Option.get should never throw, because local_state.uid should always be set when this is called *)
 
+let sigwinch = 28 (* Source: https://github.com/torvalds/linux/blob/master/include/uapi/asm-generic/signal.h *)
+
 (* Step 1: Read a keystroke *)
 let get_keystroke char_reader =
     let c1 = char_reader () in
@@ -85,14 +87,8 @@ let get_keystroke char_reader =
         else s
     in loop "\027["
     
-let get_keystroke () = 
-    let termio = Unix.tcgetattr Unix.stdin in
-    let () =
-        Unix.tcsetattr Unix.stdin Unix.TCSADRAIN
-            { termio with Unix.c_icanon = false; Unix.c_echo = false; Unix.c_icrnl = false; Unix.c_ixon = false } in
-    let res = get_keystroke (function () -> input_char stdin) in
-    Unix.tcsetattr Unix.stdin Unix.TCSADRAIN termio;
-    res
+let get_keystroke ic = 
+    get_keystroke (function () -> input_char ic) |> Option.some
 
 (* Step 2: Compute the [non-parameterized] action *)
 let printable_ascii = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~ " (* \n and \t are missing on purpose *)
@@ -341,6 +337,13 @@ let apply_remote_action (combined_state: state * local_state) : receive_action -
     | SetUser uid -> (state, {local_state with uid=local_state.uid})
     | Unlock -> (state, { local_state with locked = false })
 
+let resize_terminal (local_state: local_state ref) : unit = 
+    (*
+    (* TODO: Get new terminal size *)
+    local_state := { !local_state with terminal_size = get_terminal_size () }
+    *)
+    ()
+
 (* Step 8: Update the UI
     8a: Calculate the view, based on the last view, the current terminal size,
         and the cursor position.
@@ -562,6 +565,16 @@ let client_main (client_args: client_args) : unit =
     print_string "\027[?1049h\027[H\027[?25l"; 
     Sys.set_signal Sys.sigint (Signal_handle (function | _ -> exit 0));
 
+    (* Let us read one keystroke at a time from stdin *)
+    let termio = Unix.tcgetattr Unix.stdin in
+        Unix.tcsetattr Unix.stdin Unix.TCSADRAIN { termio with 
+            Unix.c_icanon = false; 
+            Unix.c_echo = false; 
+            Unix.c_icrnl = false; 
+            Unix.c_ixon = false };
+    let reset_stdin () : unit = Unix.tcsetattr Unix.stdin Unix.TCSADRAIN termio in
+        at_exit reset_stdin;
+
     (* Setup of the client *)
     let local_state = ref init_local_state in
     if client_args.debug then
@@ -575,22 +588,37 @@ let client_main (client_args: client_args) : unit =
         - Terminal resize events (SIGWINCH)
         - User keyboard input
     *)
+
+    let key_presses : string Input.t = Input.of_file stdin get_keystroke and
+        terminal_resizes : unit Input.t = Input.of_signal sigwinch and
+        server_messages : receive_action list Input.t = Input.fake () in
+
     let ps = if client_args.debug then print_string else (fun _ -> ()) in
     while true do
         (if client_args.debug then display_debug else display)
             !state !local_state;
-        let keystroke = get_keystroke() in
-            ps (Printf.sprintf "\"%s\" || " (String.escaped keystroke));
-        let button = get_button keystroke in
-            ps @@ Debug.string_of_button button ^ " || ";
-        let actions = compute_actions !state !local_state button in
-            ps @@ String.concat "" (List.map Debug.string_of_send_action actions); ps "\n";
-        let (local, remote) = split_send actions in
-        local_state := List.fold_left (apply_local_action !state) !local_state local;
-        let msgs = server_stub !local_state.uid remote in
-        let (s, ls) = List.fold_left apply_remote_action (!state, !local_state) msgs in
-        state := s;
-        local_state := ls
+
+        Input.select [Input.handle key_presses; Input.handle terminal_resizes];
+
+        if Input.is_ready terminal_resizes then 
+            let () = Input.read_exn terminal_resizes in
+            resize_terminal local_state;
+            (* TODO: Shift view and/or cursor if the cursor is no longer inside the view *)
+            local_state := apply_local_action !state !local_state (DisplayError (Some "Terminal size changed"))
+        else if Input.is_ready key_presses then
+            let keystroke = Input.read_exn key_presses in
+                ps (Printf.sprintf "\"%s\" || " (String.escaped keystroke));
+            let button = get_button keystroke in
+                ps @@ Debug.string_of_button button ^ " || ";
+            let actions = compute_actions !state !local_state button in
+                ps @@ String.concat "" (List.map Debug.string_of_send_action actions); ps "\n";
+            let (local, remote) = split_send actions in
+            local_state := List.fold_left (apply_local_action !state) !local_state local;
+            let msgs = server_stub !local_state.uid remote in
+            let (s, ls) = List.fold_left apply_remote_action (!state, !local_state) msgs in
+            state := s;
+            local_state := ls
+        else ()
     done
 
 (* SERVER LOGIC *)

@@ -4,7 +4,7 @@ TEXTMU - The complete list
 [x] Move debug-only code into debug.ml (printing)
 [x] Move pos/line/sline logic into a separate file.
 [x] Cutting at the end of the file appends "\n" to the clipboard, and shouldn't
-[ ] Display
+[x] Display
 	[x] Fork two display modes - debug (done) and regular (clone the current one)
 	[x] Reset the screen 'on\_exit'
 	[x] Display only visible lines

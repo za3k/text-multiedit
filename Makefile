@@ -1,4 +1,4 @@
-LIBS=types.ml debug.ml text.ml editor.ml
+LIBS=types.ml debug.ml text.ml input.ml output.ml editor.ml
 
 run: editor
 	./$<

@@ -23,6 +23,7 @@
 
 open Types
 
+let version = "0.0.1"
 let max_rows = 80
 
 let editor_colors = [Red;Green;Yellow;Blue;Magenta;Cyan;White;BrightBlack;BrightRed;BrightGreen;BrightYellow;BrightBlue;BrightMagenta;BrightCyan;BrightWhite]
@@ -31,12 +32,12 @@ let init_state = {
     text="  RAINBOWrainbowRAINBOW\nThis is the second line.\nThis is the third line.\nThis is the fourth line\nThis is the fifth line\n"; 
     document_name="test_file.txt";
     per_user = 
-        { user="zachary"; cursor=0; color=Red;  }::
-        (List.mapi (fun i c -> { 
-            user=(Printf.sprintf "editor%d" (i+1));
+        { user="zachary"; cursor=0; color=Red;  }
+        ::(List.mapi (fun i c -> { 
+            user=Printf.sprintf "editor%d" (i+1);
             cursor=2+i;
             color=c
-        }) editor_colors);
+        }) (List.tl editor_colors));
 }
 
 let init_local_state = {
@@ -62,6 +63,11 @@ let rec except_last : 'a list -> 'a list = function
     | [] -> []
     | a :: [] -> []
     | h :: l -> h :: except_last l
+let rec suffixes = function (* In order from biggest to smallest *)
+    | [] -> []
+    | _ :: l as all -> all :: (suffixes l)
+let prefixes l = (* In order from biggest to smallest *)
+    l |> List.rev |> suffixes |> List.map List.rev
 
 let get_cursor_unsafe (state: state) (local_state: local_state) : int = 
     (List.nth state.per_user (Option.get local_state.uid)).cursor (* Option.get should never throw, because local_state.uid should always be set when this is called *)
@@ -162,13 +168,13 @@ let cut_flag x = Local (CutFlag x)
 (* There is a constraint that the cursor should always be inside the viewport.
 This is logic to deal with it. *)
 
-let avail_height (terminal: terminal_size) : int = terminal.rows - 4 (* 2 rows for help, 1 for status bar, 1 for error line *)
+let viewport_height (terminal: terminal_size) : int = terminal.rows - 5 (* 1 row for title, 2 rows for help, 1 for status bar, 1 for error line *)
 let status_width (terminal: terminal_size) : int = (min max_rows terminal.cols)
 let avail_cols   (terminal: terminal_size) : int = (status_width terminal) - 5 (* room for line number display *)
 
 let viewport state local_state =
     let width = (avail_cols local_state.terminal_size)
-    and height = (avail_height local_state.terminal_size)
+    and height = (viewport_height local_state.terminal_size)
     and text = state.text in
     let (view_start, _) = Text.sline_for width text local_state.view in
     let view_end = Text.sline_add_whole width text view_start height in
@@ -179,7 +185,7 @@ let in_viewport vp pos = pos >= (fst vp) && pos <= (snd vp)
 let cursor_in_viewport (text: string) (terminal: terminal_size) (view) (cursor: int) : cursor_bound =
     match Text.sline_difference (avail_cols terminal) text view cursor with
     | (n, _) when n < 0 -> OffTop n
-    | (n, _) when n >= (avail_height terminal) -> OffBottom (n + 1 - (avail_height terminal))
+    | (n, _) when n >= (viewport_height terminal) -> OffBottom (n + 1 - (viewport_height terminal))
     | _ -> OnScreen
 
 let adjust_view_to_include_cursor (text: string) (terminal: terminal_size) (view: int) (cursor: int) : int =
@@ -227,7 +233,7 @@ let shift_cursor_and_view (state: state) (local_state: local_state) (slines: int
     view_actions @ cursor_actions
 
 let compute_actions (state: state) (local_state: local_state) button = 
-    let page_lines = avail_height local_state.terminal_size in
+    let page_lines = viewport_height local_state.terminal_size in
     let text = state.text in
     let pos = get_cursor_unsafe state local_state in
     let (physical_line, col) = Text.line_of text pos in
@@ -406,13 +412,13 @@ let display_document width text color_of debug : string list =
 let spacer_lines width num =
     copies num (String.make width ' ')
 
-let display_cursors state : string =
+let debug_cursors state : string =
     state.per_user |> List.map (function
         | {user; cursor; color} ->
             Printf.sprintf " %s: %d " user cursor |> colorize color)
     |> String.concat "  "
 
-let display_view state local_state : string =
+let debug_view state local_state : string =
     let (vs, ve) = viewport state local_state in
     Printf.sprintf " Viewport %d-%d [%d] " vs ve local_state.view |> colorize Blue
 
@@ -422,9 +428,6 @@ let display_help width : string list =
         | [] -> []
         | [a] -> [(a, default)]
         | a :: b :: l -> (a, b) :: consecutive_pairs default l in
-    let rec prefixes = function
-        | [] -> []
-        | _ :: l as all -> all :: (prefixes l) in
     let pad_shorter s1 s2 = 
         match (String.length s1, String.length s2) with
         | (a, b) when a = b -> (s1, s2)
@@ -459,8 +462,40 @@ let display_help width : string list =
     in
     List.find_map display_all sublists |> Option.value ~default:["";""]
 
-let status_line width debug state local_state =
-    [display_cursors state ^ display_view state local_state]
+let title_line width doc =
+    let open String in
+    let program = Printf.sprintf " textmu %s " version and
+        docname = Printf.sprintf "[%s]" doc in
+    let slack = (width - (length program) - (length docname)) in
+    let text = program ^ (make slack ' ') ^ docname in
+    [colorize Blue text]
+
+let status_line width state local_state =
+    let max_user_len = 20 in
+    let for_cursor = function
+        | {user; cursor; color} -> (user, color) in
+    let bits : (string * background_color) list = List.map for_cursor state.per_user in
+    let resize target_size s =
+        match String.length s with
+        | l when l = target_size -> s
+        | l when l < target_size -> s ^ (String.make (target_size - l) ' ')
+        | l -> (String.sub s 0 (target_size-3)) ^ "..." in
+    let display_all bits = 
+        let bit_len = function (s, c) -> min max_user_len @@ String.length s in
+        let lengths = List.map bit_len bits and
+            num_bits = List.length bits in
+        let max_len = List.fold_left max 0 lengths and
+            bit_width = (width / num_bits) - 2 in
+        if bit_width < max_len then None else
+
+        let slack = width - (num_bits * bit_width) in
+        let string_of_bit = function (s, c) -> colorize c @@ " " ^ (resize bit_width s) ^ " " in
+        
+        (String.concat "" @@ List.map string_of_bit bits) ^ (String.make slack ' ') 
+        |> Option.some in
+
+    List.find_map display_all (prefixes bits) |> Option.value ~default:""
+    |> (fun x -> [x])
 
 let display_debug (state: state) (local_state: local_state) : unit =
     let visible = in_viewport (viewport state local_state) and
@@ -471,7 +506,7 @@ let display_debug (state: state) (local_state: local_state) : unit =
     ] in
 
     let lines = [""] @ display_document text_width state.text color true
-    @ status_line text_width true state local_state
+    @ [debug_cursors state ^ debug_view state local_state]
     @ display_help text_width in
 
     print_string (String.concat "\n" lines); flush stdout
@@ -486,12 +521,14 @@ let display (state: state) (local_state: local_state) : unit =
         color = lookup_cursor_color state.per_user and
         text_width = avail_cols local_state.terminal_size and
         status_width = status_width local_state.terminal_size and
-        height = avail_height local_state.terminal_size in
-    let display_lines = display_viewport text_width state.text color viewport false in
-    let lines = display_lines
-    @ spacer_lines status_width (max (height - (List.length display_lines)) 0)
-    @ status_line status_width false state local_state
-    @ display_help status_width in
+        height = viewport_height local_state.terminal_size in
+    let document_lines = display_viewport text_width state.text color viewport false in
+    let lines = 
+        title_line status_width state.document_name
+        @ document_lines
+        @ spacer_lines status_width (max (height - (List.length document_lines)) 0)
+        @ status_line status_width state local_state
+        @ display_help status_width in
 
     print_lines lines
 
@@ -615,7 +652,7 @@ let parse_args () : cli_args =
         | Server -> Some "/var/text"
         | StandAlone -> Some (Sys.getcwd ())
         in option_or dir default in
-    let user = (Unix.getuid () |> Unix.getpwuid).pw_name in
+    let user = (Unix.getuid () |> Unix.getpwuid).pw_name in (* TODO: Truncate long names *)
     let dir = get_dir !mode !dir in
     { 
         mode = !mode; 

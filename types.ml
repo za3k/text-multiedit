@@ -1,7 +1,6 @@
 type background_color = 
     | Black | Red | Green | Yellow | Blue | Magenta | Cyan | White 
     | BrightBlack | BrightRed | BrightGreen | BrightYellow | BrightBlue | BrightMagenta | BrightCyan | BrightWhite
-    | Default
 
 (* Invariant: text has a newline at the end *)
 type user_state = { user: string; cursor: int; color: background_color; }

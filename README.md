@@ -16,7 +16,7 @@ TEXTMU - The complete list
 	[x] Improve background/foreground color pairs
     [x] Add title bar
 	[x] Add the line of users
-	[ ] Add an error message display
+	[x] Add an error message display
 [ ] In-Channels 
 	[ ] Write them (file-backed, reads a specific type, notes whether it's ready to read or not)
 	[ ] Add a way to listen for a list of In-Channels to be ready

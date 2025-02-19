@@ -143,27 +143,31 @@ let split_send (actions: send_action list) : (send_local_action list * send_remo
     List.partition_map either actions
 let has_remote actions =
     split_send actions |> snd |> (<>) []
+let has_error actions = 
+    let is_error = function
+    | Local (DisplayError (Some _)) -> true
+    | _ -> false in
+    List.exists is_error actions
     
+let exit_action = [Local Exit]
+let lock = [Local Lock]
+let save = [Remote Save]
+let error x = [Local (DisplayError (Some x))]
+let no_error = [Local (DisplayError None)]
+let cut_flag x = [Local (CutFlag x)]
 let insert offset str = [Remote(ReplaceText (offset, 0, str))]
 let delete offset len = [Remote(ReplaceText (offset, len, ""))]
 let move_cursor offset = if offset = 0 then [] else [Remote(ReplaceText (offset, 0, ""))]
 let move_view offset = if offset = 0 then [] else [Local(ShiftView offset)]
 let cut append_move clipboard text pos line_start line_end = 
     if line_start = line_end && (Text.document_end text) = line_end then
-        [ Local( DisplayError( Some "Nothing was cut" )) ] else 
+        error "Nothing was cut" else 
     let new_text = String.sub text line_start (line_end-line_start+1) in
     let clipboard = if append_move then clipboard ^ new_text else new_text in
     [
         Local(CopyText clipboard);
         Remote(ReplaceText (line_start-pos, line_end-line_start+1, ""));
-        Local(CutFlag true)
-    ]
-let exit_action = Local Exit
-let lock = Local Lock
-let save = Remote Save
-let error x = Local (DisplayError (Some x))
-let no_error = Local (DisplayError None)
-let cut_flag x = Local (CutFlag x)
+    ] @ cut_flag true
 
 (* There is a constraint that the cursor should always be inside the viewport.
 This is logic to deal with it. *)
@@ -250,25 +254,23 @@ let compute_actions (state: state) (local_state: local_state) button =
     | Home -> move_cursor (first-pos)
     | PageDown -> shift_cursor_and_view state local_state page_lines
     | PageUp ->   shift_cursor_and_view state local_state (-page_lines)
-    | Exit -> [exit_action]
+    | Exit -> exit_action
     | Help -> [] (* TODO *)
     | Justify -> [] (* TODO *)
     | Left ->  move_cursor (-1)
     | Right -> move_cursor 1
     | Paste -> insert 0 clipboard
-    | Save -> [save]
+    | Save -> save
     | ScrollDown -> shift_view state local_state 1
     | ScrollUp ->   shift_view state local_state (-1)
     | Tab -> insert 0 "    "
     | Key c -> insert 0 (String.make 1 c)
-    | Unknown s -> [error (Printf.sprintf "Unknown key pressed: %s" s)]
+    | Unknown s -> error (Printf.sprintf "Unknown key pressed: '%s'" (String.escaped s))
     in let actions = actions @ match button with
     | Cut -> []
-    | _ -> [cut_flag false]
-    in let actions = actions @ match button with
-    | Unknown _ -> []
-    | _ -> [no_error] 
-    in let actions = (if has_remote actions then [lock] else []) @ actions
+    | _ -> cut_flag false
+    in let actions = actions @ (if has_error actions then [] else no_error)
+    in let actions = (if has_remote actions then lock else []) @ actions
     in actions
 
 (* Step 4: Apply local state changes *)
@@ -470,6 +472,15 @@ let title_line width doc =
     let text = program ^ (make slack ' ') ^ docname in
     [colorize Blue text]
 
+let error_line width = function
+    | None -> [String.make width ' ']
+    | Some error ->
+        let error = Printf.sprintf "[ %s ]" error in
+        let e = width - (String.length error) in
+        let left = String.make (e/2) ' ' and
+            right = String.make (e-e/2) ' ' in
+        [left ^ error ^ right]
+
 let status_line width state local_state =
     let max_user_len = 20 in
     let for_cursor = function
@@ -527,6 +538,7 @@ let display (state: state) (local_state: local_state) : unit =
         title_line status_width state.document_name
         @ document_lines
         @ spacer_lines status_width (max (height - (List.length document_lines)) 0)
+        @ error_line status_width local_state.error
         @ status_line status_width state local_state
         @ display_help status_width in
 

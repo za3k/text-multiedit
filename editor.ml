@@ -617,14 +617,16 @@ let client_main (client_args: client_args) : unit =
         (if client_args.debug then display_debug else display)
             !state !local_state;
 
-        Input.select [
+        Input.select ([
             Input.handle server_received;
             Input.handle terminal_resizes;
-            Input.handle key_presses;
-        ];
+        ] @ 
+            if (!local_state).locked then [] else [Input.handle key_presses]
+        );
 
         if Input.is_ready server_received then
             let msgs = Input.read_exn server_received in
+            (* TODO: Print messages from the server now that they're nontrivial *)
 
             let apply1 msg =
                 let (s, rest) = apply_remote_action !state msg in

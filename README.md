@@ -27,15 +27,16 @@ TEXTMU - The complete list
     [ ] Detect the terminal size -- requires C, punt this (see: https://github.com/cryptosense/terminal_size/blob/master/src/terminal_size_stubs.c)
     [ ] Change the terminal size
 [x] Write a real server, but that sends back simple dummy data and assumes there's one connection at a time
-[ ] Write the real client logic
+[x] Write the real client logic
 	[x] Listen to first of (network, keyboard, SIGWINCH) using In-Channels
-	[ ] Add keyboard locking/unlocking, Don't listen to keyboard while locked
+	[x] Add keyboard locking/unlocking, Don't listen to keyboard while locked
 [ ] Write the real server logic
-    [ ] Support multiple connections
-    [ ] Support multiple documents
+    [x] Support multiple connections
+    [ ] Send messages to all users, not just one
 	[x] Stand-alone mode: Pass in a condition variable to the server, which is triggered when the user is ready
     [ ] Make sure the server PRINTS AN ERROR MESSAGE if it crashes with an exception--this appears to not be the default! Ex: Sys.remove "non-existent file"
 	[ ] Add document setup messages when a user connects
+    [ ] Support multiple documents
 	[ ] Add file load+save
 	[ ] Add message queues for each user
 [ ] Add a "colored string" type to simplify display + padding logic

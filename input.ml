@@ -6,9 +6,9 @@ type 'a t = {
 
 type handle = { file_descr: Unix.file_descr; mark_ready: unit -> unit }
 
-(* TODO: Automatic reader should use marshalling *)
-
-let of_file (file: In_channel.t) (reader: In_channel.t -> ('a option)) : 'a t =
+let default_reader i = Option.some @@ Marshal.from_channel i
+let of_file ?(reader: (In_channel.t -> ('a option)) = default_reader) 
+            (file: In_channel.t) : 'a t =
     { file; reader; ready=ref false }
 
 (* let for_listening_socket file_descr -> 'a t t = fail() *)
@@ -34,8 +34,6 @@ let rec select (handles: handle list) : unit =
         | exception Unix.Unix_error (EINTR, _, _) -> select handles
         | (ready_files, _, _) ->
 
-    Printf.sprintf "  -> [%d]" (List.length ready_files) |> print_endline;
-
     handles 
     |> List.filter (function h -> List.mem h.file_descr ready_files)
     |> List.iter (function h -> h.mark_ready ())
@@ -50,7 +48,7 @@ let fail _ = failwith "Not implemented"
 (*let for_signal int : unit t = fail()*)
 
 let fake () : 'a t =
-    of_file fake_inchannel fail
+    of_file ~reader:fail fake_inchannel
 
 let of_signal (signal: int) : unit t =
     let (i, o) = channel_pair () in
@@ -71,4 +69,4 @@ let of_signal (signal: int) : unit t =
     (* let _ = Unix.sigprocmask Unix.SIG_BLOCK [signal]; *)
     Sys.set_signal signal (Sys.Signal_handle (producer o));
 
-    of_file i consumer
+    of_file ~reader:consumer i

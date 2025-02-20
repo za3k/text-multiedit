@@ -17,20 +17,27 @@ TEXTMU - The complete list
     [x] Add title bar
 	[x] Add the line of users
 	[x] Add an error message display
-[ ] In-Channels 
-	[ ] Write them (file-backed, reads a specific type, notes whether it's ready to read or not)
-	[ ] Add a way to listen for a list of In-Channels to be ready
-[ ] Out-Channels
-	[ ] Write them (file-backed, writes a specific type)
-[ ] Write a real server, but that sends back simple dummy data and assumes there's one connection at a time
+[x] In-Channels 
+	[x] Write them (file-backed, reads a specific type, notes whether it's ready to read or not)
+	[x] Add a way to listen for a list of In-Channels to be ready
+[x] Out-Channels
+	[x] Write them (file-backed, writes a specific type)
+[ ] Terminal resizing
+    [x] Listen for terminal resize
+    [ ] Detect the terminal size -- requires C, punt this (see: https://github.com/cryptosense/terminal_size/blob/master/src/terminal_size_stubs.c)
+    [ ] Change the terminal size
+[x] Write a real server, but that sends back simple dummy data and assumes there's one connection at a time
 [ ] Write the real client logic
-	[ ] Listen to first of (network, keyboard, SIGWINCH) using In-Channels
+	[x] Listen to first of (network, keyboard, SIGWINCH) using In-Channels
 	[ ] Add keyboard locking/unlocking, Don't listen to keyboard while locked
 [ ] Write the real server logic
+    [ ] Support multiple connections
+    [ ] Support multiple documents
+	[x] Stand-alone mode: Pass in a condition variable to the server, which is triggered when the user is ready
+    [ ] Make sure the server PRINTS AN ERROR MESSAGE if it crashes with an exception--this appears to not be the default! Ex: Sys.remove "non-existent file"
 	[ ] Add document setup messages when a user connects
 	[ ] Add file load+save
 	[ ] Add message queues for each user
-	[ ] Stand-alone mode: Pass in a condition variable to the server, which is triggered when the user is ready
 [ ] Add a "colored string" type to simplify display + padding logic
 [ ] Refactor pos/line/sline logic
 	- Move pos/line/sline logic into a separate module.

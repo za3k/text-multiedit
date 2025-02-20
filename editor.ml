@@ -68,6 +68,7 @@ let rec suffixes = function (* In order from biggest to smallest *)
     | _ :: l as all -> all :: (suffixes l)
 let prefixes l = (* In order from biggest to smallest *)
     l |> List.rev |> suffixes |> List.map List.rev
+let noop () = ()
 
 let get_cursor_unsafe (state: state) (local_state: local_state) : int = 
     (List.nth state.per_user (Option.get local_state.uid)).cursor (* Option.get should never throw, because local_state.uid should always be set when this is called *)
@@ -301,9 +302,8 @@ let server_stub (uid: int option) (actions: send_remote_action list) : receive_a
     which is always at the beginning of a line.
 *)
 
-let apply_remote_action (combined_state: state * local_state) : receive_action -> state * local_state = 
+let apply_remote_action (state: state) : receive_action -> (state * (local_state -> local_state)) = 
     (*print_endline (Printf.sprintf "ApplyingRemote: %s" (Debug.string_of_receive_action action));*)
-    let (state, local_state) = combined_state in
     function
     | ReplaceText (ed_uid, start, length, replacement) ->
         (* 
@@ -326,23 +326,33 @@ let apply_remote_action (combined_state: state * local_state) : receive_action -
             else { user with cursor = shift user.cursor }
         ) state.per_user in
         let state = { state with per_user = new_users; text = new_text } in
-        let cursor = get_cursor_unsafe state local_state in
-        let view = adjust_view_to_include_cursor new_text
-                   local_state.terminal_size (shift local_state.view) cursor in
-        let local_state = { local_state with view = view } in
-        (state, local_state)
-    | UserJoins user_state -> ({state with per_user = state.per_user @ [user_state]}, local_state)
-    | UserLeaves uid -> ({state with per_user = remove1 uid state.per_user}, local_state)
 
-    | SetUser uid -> (state, {local_state with uid=local_state.uid})
-    | Unlock -> (state, { local_state with locked = false })
+        let rest local_state =
+            let cursor = get_cursor_unsafe state local_state in
+            let view = adjust_view_to_include_cursor new_text
+                    local_state.terminal_size (shift local_state.view) cursor in
+            { local_state with view = view } in
 
-let resize_terminal (local_state: local_state ref) : unit = 
+        (state, rest)
+    | UserJoins user_state -> 
+        ({state with per_user = state.per_user @ [user_state]}, Fun.id)
+    | UserLeaves uid -> 
+        ({state with per_user = remove1 uid state.per_user}, Fun.id)
+    | SetUser uid -> 
+        let rest local_state =
+            {local_state with uid=local_state.uid} in
+        (state, rest)
+    | Unlock -> 
+        let rest local_state =
+            { local_state with locked = false } in
+        (state, rest)
+
+let resize_terminal (state: state) (local_state: local_state ref) : unit = 
     (*
     (* TODO: Get new terminal size *)
     local_state := { !local_state with terminal_size = get_terminal_size () }
     *)
-    ()
+    local_state := apply_local_action state !local_state (DisplayError (Some "Terminal size changed"))
 
 (* Step 8: Update the UI
     8a: Calculate the view, based on the last view, the current terminal size,
@@ -552,10 +562,19 @@ let display (state: state) (local_state: local_state) : unit =
     Send "Disconnect" to the server.
 *)
 
+let connect_unix_socket path : In_channel.t * Out_channel.t =
+    print_endline "CONNECT";
+    let fd = Unix.socket Unix.PF_UNIX Unix.SOCK_STREAM 0 in
+    let addr = Unix.ADDR_UNIX path in
+    Unix.connect fd addr;
+    print_endline "CONNECT DONE";
+    (Unix.in_channel_of_descr fd, Unix.out_channel_of_descr fd)
+
 type client_args = {
     debug: bool;
     files: string list;
     user: string;
+    socket: string;
 }
 let client_main (client_args: client_args) : unit =
     (* Terminal stuff for start/exit *)
@@ -575,36 +594,47 @@ let client_main (client_args: client_args) : unit =
     let reset_stdin () : unit = Unix.tcsetattr Unix.stdin Unix.TCSADRAIN termio in
         at_exit reset_stdin;
 
-    (* Setup of the client *)
+    (* Setup of the client state *)
     let local_state = ref init_local_state in
     if client_args.debug then
         local_state := { !local_state with terminal_size = { rows=7; cols=11 } }
     else ();
     let state = ref init_state in
 
-    (* Main loop of the client *)
-    (* In a loop, listen for any of:
+    (* Main loop. Listen for any of:
         - Messages from the server
         - Terminal resize events (SIGWINCH)
         - User keyboard input
     *)
-
-    let key_presses : string Input.t = Input.of_file stdin get_keystroke and
+    let (server_i, server_o) = connect_unix_socket client_args.socket in
+    let server_received : receive_action list Input.t = Input.of_file server_i and
         terminal_resizes : unit Input.t = Input.of_signal sigwinch and
-        server_messages : receive_action list Input.t = Input.fake () in
+        key_presses : string Input.t = Input.of_file ~reader:get_keystroke stdin and
+        server_sent : send_remote_action list Output.t = Output.of_file server_o in
 
     let ps = if client_args.debug then print_string else (fun _ -> ()) in
     while true do
         (if client_args.debug then display_debug else display)
             !state !local_state;
 
-        Input.select [Input.handle key_presses; Input.handle terminal_resizes];
+        Input.select [
+            Input.handle server_received;
+            Input.handle terminal_resizes;
+            Input.handle key_presses;
+        ];
 
-        if Input.is_ready terminal_resizes then 
+        if Input.is_ready server_received then
+            let msgs = Input.read_exn server_received in
+
+            let apply1 msg =
+                let (s, rest) = apply_remote_action !state msg in
+                state := s;
+                local_state := rest !local_state in
+            List.iter apply1 msgs
+        else if Input.is_ready terminal_resizes then 
             let () = Input.read_exn terminal_resizes in
-            resize_terminal local_state;
-            (* TODO: Shift view and/or cursor if the cursor is no longer inside the view *)
-            local_state := apply_local_action !state !local_state (DisplayError (Some "Terminal size changed"))
+            resize_terminal !state local_state;
+            (* TODO: Shift view and/or cursor if the cursor is no longer inside the view? *)
         else if Input.is_ready key_presses then
             let keystroke = Input.read_exn key_presses in
                 ps (Printf.sprintf "\"%s\" || " (String.escaped keystroke));
@@ -614,10 +644,7 @@ let client_main (client_args: client_args) : unit =
                 ps @@ String.concat "" (List.map Debug.string_of_send_action actions); ps "\n";
             let (local, remote) = split_send actions in
             local_state := List.fold_left (apply_local_action !state) !local_state local;
-            let msgs = server_stub !local_state.uid remote in
-            let (s, ls) = List.fold_left apply_remote_action (!state, !local_state) msgs in
-            state := s;
-            local_state := ls
+            Output.send server_sent remote
         else ()
     done
 
@@ -629,12 +656,63 @@ let client_main (client_args: client_args) : unit =
     connections for that document, setting up the document if neded.
 *)
 
+let open_unix_socket path =
+    let clean () = if Sys.file_exists path then Sys.remove path else () in
+    clean (); at_exit clean;
+
+    let fd = Unix.socket Unix.PF_UNIX Unix.SOCK_STREAM 0 in
+    let addr = Unix.ADDR_UNIX path in
+    Unix.bind fd addr;
+    Unix.listen fd 10;
+    fd
+
 type server_args = {
     dir: string;
+    socket: string;
 }
 
-let server_main (server_args: server_args) : unit =
-    ()
+let server_main (server_args: server_args) (on_ready: unit->unit) : unit =
+    let state = ref init_state in
+
+    (* Listen on a socket for client connections *)
+
+    let fd = open_unix_socket server_args.socket in
+    on_ready ();
+
+    (* Accept exactly one client connection *)
+    (* TODO: Support multiple connections *)
+    (* TODO: signal(SIGPIPE, SIG_IGN); *)
+    ignore @@ Unix.select [fd] [] [] (-1.0);
+    let (client_fd, client_addr) = Unix.accept fd in
+
+    let uid = Some 0 in
+    let server_sent : receive_action list Output.t = 
+        Output.of_file (Unix.out_channel_of_descr client_fd) in
+    let server_received : send_remote_action list Input.t = 
+        Input.of_file (Unix.in_channel_of_descr client_fd) in
+
+    (* TODO: Deal with multiple documents -- right now this assumes everything is dealing with one
+    document only. *)
+    (* TODO: Actually open a document or save it *)
+    while true do
+        Input.select [
+            Input.handle server_received;
+        ];
+
+        if Input.is_ready server_received then
+            let actions = Input.read_exn server_received in
+
+            let msgs = server_stub uid actions in
+
+            let apply1 msg =
+                state := fst @@ apply_remote_action !state msg in
+            List.iter apply1 msgs;
+
+
+            Output.send server_sent msgs
+        else ()
+
+    done
 
 (* Document setup
     Open file for reading
@@ -671,7 +749,7 @@ type cli_args = {
 let parse_args () : cli_args =
     let usage_msg = "text [--debug] [--dir DIR] [--stand-alone|--server|--client]" in
     let debug = ref false 
-    and mode = ref Client
+    and mode = ref StandAlone
     and dir = ref None
     and files = ref [] in
     let anon_fun filename = files := filename :: !files
@@ -693,22 +771,39 @@ let parse_args () : cli_args =
         | StandAlone -> Some (Sys.getcwd ())
         in option_or dir default in
     let user = (Unix.getuid () |> Unix.getpwuid).pw_name in (* TODO: Truncate long names *)
+    let socket = "/tmp/textmu.socket" in
     let dir = get_dir !mode !dir in
     { 
         mode = !mode; 
-        client_args = { files = !files; debug = !debug; user };
-        server_args = { dir = Option.value dir ~default: "" }
+        client_args = { files = !files; debug = !debug; user; socket };
+        server_args = { dir = Option.value dir ~default: ""; socket }
     }
+
+let cvar () : (unit -> unit) * (unit -> unit) =
+    let flag = Atomic.make false and
+        cv = Condition.create () and
+        m = Mutex.create () in
+    Mutex.lock m;
+
+    let set_ready () =
+            Atomic.set flag true;
+            Condition.broadcast cv and
+        wait_until_ready () =
+            while not @@ Atomic.get flag do
+                Condition.wait cv
+            done
+    in (set_ready, wait_until_ready)
+        
 
 let main () : unit =
     let args = parse_args () in
     match args.mode with
     | Client -> client_main args.client_args
-    | Server -> server_main args.server_args
-    | StandAlone -> ()
-        (*
-        TODO: Does not work in OCaml 4.14.1, find an older solution?
-        let server = Domain.spawn (fun () -> server_main args.server_args) in (* TODO: Make sure the server is ready *)
+    | Server -> server_main args.server_args noop
+    | StandAlone ->
+        (* TODO: 'Domain' Does not work in OCaml 4.14.1, find an older solution? *)
+        let (on_ready, wait_until_ready) = cvar () in
+        let server = Domain.spawn (fun () -> server_main args.server_args on_ready) in
+        wait_until_ready ();
         client_main args.client_args;
         Domain.join server
-        *)

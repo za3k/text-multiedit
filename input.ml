@@ -28,6 +28,7 @@ let handle (channel: 'a t) : handle =
     { file_descr; mark_ready }
 
 let rec select (handles: handle list) : unit =
+    (* TODO: If one of the handles is already waiting, return that set first *)
     let files = List.map (function {file_descr} -> file_descr) handles in
 
     match Unix.select files [] [] (-4.0) with
@@ -37,6 +38,8 @@ let rec select (handles: handle list) : unit =
     handles 
     |> List.filter (function h -> List.mem h.file_descr ready_files)
     |> List.iter (function h -> h.mark_ready ())
+
+(* TODO: Add a non-blocking select (so we can see if there are additional new connections *)
 
 let channel_pair () : In_channel.t * Out_channel.t =
     let (i, o) = Unix.pipe () in

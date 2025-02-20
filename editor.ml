@@ -51,6 +51,7 @@ let init_local_state = {
 }
 
 let remove1 (i: int) : 'a list -> 'a list = List.filteri (fun j x -> j <> i)
+let remove (x: 'a) (l: 'a list) = List.filter ((!=) x) l
 let compose f g x = f (g x) (* Support OCaml 4.14.1 *)
 let copies num x = List.init num (fun _ -> x)
 let sum = List.fold_left (+) 0
@@ -597,8 +598,7 @@ let client_main (client_args: client_args) : unit =
     (* Setup of the client state *)
     let local_state = ref init_local_state in
     if client_args.debug then
-        local_state := { !local_state with terminal_size = { rows=7; cols=11 } }
-    else ();
+        local_state := { !local_state with terminal_size = { rows=7; cols=11 } };
     let state = ref init_state in
 
     (* Main loop. Listen for any of:
@@ -644,8 +644,7 @@ let client_main (client_args: client_args) : unit =
                 ps @@ String.concat "" (List.map Debug.string_of_send_action actions); ps "\n";
             let (local, remote) = split_send actions in
             local_state := List.fold_left (apply_local_action !state) !local_state local;
-            Output.send server_sent remote
-        else ()
+            Output.send server_sent remote;
     done
 
 (* SERVER LOGIC *)
@@ -657,18 +656,31 @@ let client_main (client_args: client_args) : unit =
 *)
 
 let open_unix_socket path =
-    let clean () = if Sys.file_exists path then Sys.remove path else () in
+    let clean () = if Sys.file_exists path then Sys.remove path in
     clean (); at_exit clean;
 
     let fd = Unix.socket Unix.PF_UNIX Unix.SOCK_STREAM 0 in
     let addr = Unix.ADDR_UNIX path in
     Unix.bind fd addr;
     Unix.listen fd 10;
-    fd
+    Unix.in_channel_of_descr fd
 
 type server_args = {
     dir: string;
     socket: string;
+}
+type connection = {
+    inp: send_remote_action list Input.t;
+    out: receive_action list Output.t;
+}
+and user = {
+    conn: connection;
+    document: document;
+    uid: int;
+}
+and document = {
+    state: state ref;
+    users: user list ref; (* Maybe *)
 }
 
 let server_main (server_args: server_args) (on_ready: unit->unit) : unit =
@@ -676,42 +688,72 @@ let server_main (server_args: server_args) (on_ready: unit->unit) : unit =
 
     (* Listen on a socket for client connections *)
 
-    let fd = open_unix_socket server_args.socket in
+    let socket = open_unix_socket server_args.socket in
     on_ready ();
 
     (* Accept exactly one client connection *)
     (* TODO: Support multiple connections *)
     (* TODO: signal(SIGPIPE, SIG_IGN); *)
-    ignore @@ Unix.select [fd] [] [] (-1.0);
-    let (client_fd, client_addr) = Unix.accept fd in
+    
+    let new_connections : connection Input.t =
+        let process_connection (ic: In_channel.t) =
+            let (client_fd, client_addr) = Unix.accept (Unix.descr_of_in_channel ic) in
+            Some {
+                inp=Input.of_file (Unix.in_channel_of_descr client_fd);
+                out=Output.of_file (Unix.out_channel_of_descr client_fd)
+            } in
+        Input.of_file ~reader:process_connection socket in
 
-    let uid = Some 0 in
-    let server_sent : receive_action list Output.t = 
-        Output.of_file (Unix.out_channel_of_descr client_fd) in
-    let server_received : send_remote_action list Input.t = 
-        Input.of_file (Unix.in_channel_of_descr client_fd) in
+    let all_users : user list ref = ref [] and
+        unauthed_connections : connection list ref = ref [] in
+        (*
+        documents : (string, document) Map.t = Map.empty in*)
 
-    (* TODO: Deal with multiple documents -- right now this assumes everything is dealing with one
-    document only. *)
-    (* TODO: Actually open a document or save it *)
+    let auth_user (conn: connection) (action1: send_remote_action) : user =
+        (* TODO: Figure out the user id and document from the m *)
+        (* TODO: Find an existing document instead of making a new instance every time *)
+        (* TODO: Actually read/create documents *)
+        let uid = 0 and
+            document = { state=ref init_state; users=ref [] } in
+        let user = { conn; document; uid } in
+        document.users := user :: !(document.users);
+        user in
+        
+    let process_actions user actions =
+        let msgs = server_stub (Some user.uid) actions in
+
+        let apply1 msg =
+            state := fst @@ apply_remote_action !state msg in
+        List.iter apply1 msgs;
+
+        (* TODO: Talk to other users on the document too *)
+        Output.send user.conn.out msgs in
+
+    (* TODO: Save documents *)
     while true do
-        Input.select [
-            Input.handle server_received;
-        ];
+        Input.select (
+            [ Input.handle new_connections; ] @
+            (List.map (fun conn -> Input.handle conn.inp) !unauthed_connections) @
+            (List.map (fun user -> Input.handle user.conn.inp) !all_users)
+        );
 
-        if Input.is_ready server_received then
-            let actions = Input.read_exn server_received in
+        if Input.is_ready new_connections then
+            (* let uid = Some 0 and *)
+            let conn = Input.read_exn new_connections in
+            unauthed_connections := conn :: !unauthed_connections;
 
-            let msgs = server_stub uid actions in
+        !unauthed_connections |> List.iter (function {inp;out} as conn ->
+            if Input.is_ready inp then
+                let actions = Input.read_exn inp in
+                let user = auth_user conn (List.hd actions) in
+                unauthed_connections := remove conn !unauthed_connections;
+                all_users := user :: !all_users;
+                process_actions user actions);
 
-            let apply1 msg =
-                state := fst @@ apply_remote_action !state msg in
-            List.iter apply1 msgs;
-
-
-            Output.send server_sent msgs
-        else ()
-
+        !all_users |> List.iter (function
+        |{conn={inp;out}; document=_; uid=_} as user ->
+            let actions = Input.read_exn inp in
+            process_actions user actions)
     done
 
 (* Document setup

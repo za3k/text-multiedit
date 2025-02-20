@@ -644,7 +644,7 @@ let client_main (client_args: client_args) : unit =
                 ps @@ String.concat "" (List.map Debug.string_of_send_action actions); ps "\n";
             let (local, remote) = split_send actions in
             local_state := List.fold_left (apply_local_action !state) !local_state local;
-            Output.send server_sent remote;
+            Output.send server_sent remote
     done
 
 (* SERVER LOGIC *)
@@ -684,8 +684,6 @@ and document = {
 }
 
 let server_main (server_args: server_args) (on_ready: unit->unit) : unit =
-    let state = ref init_state in
-
     (* Listen on a socket for client connections *)
 
     let socket = open_unix_socket server_args.socket in
@@ -723,13 +721,14 @@ let server_main (server_args: server_args) (on_ready: unit->unit) : unit =
         let msgs = server_stub (Some user.uid) actions in
 
         let apply1 msg =
+            let state = user.document.state in
             state := fst @@ apply_remote_action !state msg in
         List.iter apply1 msgs;
 
         (* TODO: Talk to other users on the document too *)
         Output.send user.conn.out msgs in
 
-    (* TODO: Save documents *)
+    (* TODO: Save document *)
     while true do
         Input.select (
             [ Input.handle new_connections; ] @
@@ -737,21 +736,21 @@ let server_main (server_args: server_args) (on_ready: unit->unit) : unit =
             (List.map (fun user -> Input.handle user.conn.inp) !all_users)
         );
 
-        if Input.is_ready new_connections then
-            (* let uid = Some 0 and *)
+        (if Input.is_ready new_connections then
             let conn = Input.read_exn new_connections in
-            unauthed_connections := conn :: !unauthed_connections;
+            unauthed_connections := conn :: !unauthed_connections);
 
         !unauthed_connections |> List.iter (function {inp;out} as conn ->
-            if Input.is_ready inp then
-                let actions = Input.read_exn inp in
-                let user = auth_user conn (List.hd actions) in
-                unauthed_connections := remove conn !unauthed_connections;
-                all_users := user :: !all_users;
-                process_actions user actions);
+        if Input.is_ready inp then
+            let actions = Input.read_exn inp in
+            let user = auth_user conn (List.hd actions) in
+            unauthed_connections := remove conn !unauthed_connections;
+            all_users := user :: !all_users;
+            process_actions user actions);
 
         !all_users |> List.iter (function
-        |{conn={inp;out}; document=_; uid=_} as user ->
+        |{conn={inp;out=_}; document=_; uid=_} as user ->
+        if Input.is_ready inp then
             let actions = Input.read_exn inp in
             process_actions user actions)
     done

@@ -11,7 +11,7 @@ cloc: $(LIBS) main.ml
 # This warns about linking glibc statically
 # Chronic suppresses the warning for me (provided in joeyhess's miscutils)
 editor: $(LIBS) main.ml
-	chronic ocamlopt -ccopt -static -I +unix unix.cmxa -o $@ $^
+	chronic ocamlopt -g -ccopt -static -I +unix unix.cmxa -o $@ $^
 test.o: $(LIBS) test.ml
 	ocamlfind ocamlc -linkpkg -package ounit2 -o $@ $^
 %.o: %.ml

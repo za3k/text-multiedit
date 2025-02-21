@@ -34,7 +34,7 @@ TEXTMU - The complete list
     [x] Support multiple connections
     [ ] Send messages to all users, not just one
 	[x] Stand-alone mode: Pass in a condition variable to the server, which is triggered when the user is ready
-    [ ] Make sure the server PRINTS AN ERROR MESSAGE if it crashes with an exception--this appears to not be the default! Ex: Sys.remove "non-existent file"
+    [x] Make sure the server PRINTS AN ERROR MESSAGE if it crashes with an exception--this appears to not be the default! Ex: Sys.remove "non-existent file"
 	[ ] Add document setup messages when a user connects
     [ ] Support multiple documents
 	[ ] Add file load+save
@@ -101,6 +101,8 @@ TEXTMU - The complete list
 [ ] Post about 'text' to blogsuchin
 [ ] Post about 'text' to tilde chat
 [ ] Post about 'text' to my own blog
+[ ] Add a documentation patch to https://ocaml.org/manual/5.3/api/Printexc.html to mention -g, OCAMLRUNPARAM=b, and record_backtrace
+     'Note that recording the call stack must be explicitly enabled. See record_backtrace'
 [ ] You are done!
 
 FUTURE FEATURES

@@ -748,6 +748,7 @@ let server_main (server_args: server_args) (on_ready: unit->unit) : unit =
             let user = auth_user conn (List.hd actions) in
             unauthed_connections := remove conn !unauthed_connections;
             all_users := user :: !all_users;
+            failwith "dsdsl";
             process_actions user actions);
 
         !all_users |> List.iter (function
@@ -837,16 +838,37 @@ let cvar () : (unit -> unit) * (unit -> unit) =
             done
     in (set_ready, wait_until_ready)
         
+let crash = Atomic.make None
+let enable_error_reporting () =
+    at_exit (fun () -> 
+        Out_channel.flush stdout;
+        match Atomic.get crash with 
+        | Some msg -> Out_channel.output_string stderr msg
+        | _ -> () 
+    )
+let fail_catastrophically (f: 'a -> 'b) (x: 'a) : 'b =
+    Printexc.record_backtrace true; (* Fun fact: this is a per-domain setting *)
+    try f x with
+        | e ->
+            Atomic.set crash (Printf.sprintf "%s\n%s\n"
+                (Printexc.to_string e)
+                (Printexc.get_backtrace ()) |> Option.some);
+            exit 1
+
 
 let main () : unit =
+    enable_error_reporting ();
+
     let args = parse_args () in
     match args.mode with
-    | Client -> client_main args.client_args
-    | Server -> server_main args.server_args noop
+    | Client -> fail_catastrophically client_main args.client_args
+    | Server -> fail_catastrophically (server_main args.server_args) noop
     | StandAlone ->
         (* TODO: 'Domain' Does not work in OCaml 4.14.1, find an older solution? *)
         let (on_ready, wait_until_ready) = cvar () in
-        let server = Domain.spawn (fun () -> server_main args.server_args on_ready) in
+        let server = Domain.spawn
+            (fun () -> fail_catastrophically (server_main args.server_args) on_ready)
+        in
         wait_until_ready ();
-        client_main args.client_args;
+        fail_catastrophically client_main args.client_args;
         Domain.join server

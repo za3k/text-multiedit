@@ -33,7 +33,7 @@ TEXTMU - The complete list
     [x] Send messages to all users, not just one
 	[x] Add message queues for each user
     [x] Assign user colors
-	[ ] Add document setup messages when a user connects
+	[x] Add document setup messages when a user connects
     [ ] Have a dictionary of documents -- look up or create one on demand
 	[ ] Add file load+save
 [x] Fix bug where the blank document doesn't show a cursor or the line number

@@ -222,20 +222,20 @@ let adjust_cursor_to_be_visible (text: string) (terminal: terminal_size) (view: 
 (* Functions such as PageUp/PageDown shift both the cursor and the view, and
 even ScrollUp/ScrollDown can sometimes move the cursor *)
 
-let shift_sline_action (state: state) (local_state: local_state) (slines: int) (pos: int) : int * int * int =
-    if slines = 0 then (0,pos,0) else
+let shift_sline_action (state: state) (local_state: local_state) 
+                       (slines: int) (pos: int) (f: int -> 'a) 
+                       : int * int * 'a =
+    if slines = 0 then (0,pos,f 0) else
     let width = avail_cols local_state.terminal_size in
     let new_pos = Text.sline_add width state.text pos (slines, 0) in
     let (shifted_slines, _) = Text.sline_difference width state.text pos new_pos in
-    (shifted_slines, new_pos, new_pos-pos)
+    (shifted_slines, new_pos, f (new_pos-pos))
 
-let shift_only_cursor (state: state) (local_state: local_state) (slines: int) : int * int * send_action list =
-    let (shifted_slines, new_cursor, cursor_delta) = shift_sline_action state local_state slines (get_cursor_unsafe state local_state) in
-    (shifted_slines, new_cursor, move_cursor cursor_delta)
+let shift_only_view s ls slines : int * int * send_action list =
+    shift_sline_action s ls slines ls.view move_view
 
-let shift_only_view (state: state) (local_state: local_state) (slines: int) : int * int * send_action list =
-    let (shifted_slines, new_view, view_delta) = shift_sline_action state local_state slines local_state.view in
-    (shifted_slines, new_view, move_view view_delta)
+let shift_only_cursor s ls slines : int * int * send_action list =
+    shift_sline_action s ls slines (get_cursor_unsafe s ls) move_cursor
 
 let shift_view (state: state) (local_state: local_state) (slines: int) : send_action list = (* Used in: ScrollUp/ScrollDown *)
     let (shifted_slines, new_view, view_actions) = shift_only_view state local_state slines in
@@ -727,14 +727,19 @@ let process_actions debug (user: user) actions : unit =
         list_of_queue q = List.of_seq @@ Queue.to_seq q and
         q_user = Queue.create () and
         q_everyone = Queue.create () in
-    let send_one user (q: receive_action Queue.t) : unit = 
+    let send_one u (q: receive_action Queue.t) : unit = 
             if not @@ Queue.is_empty q then
-            Output.send user.conn.out (list_of_queue q) and
+            if debug then (
+                print_endline @@ Printf.sprintf "%s (%d): %s"
+                    (colorize Green u.name) u.uid
+                    (Debug.string_of_list Debug.string_of_receive_action (list_of_queue q))
+            );
+            Output.send u.conn.out (list_of_queue q) and
         enqueue_user x = Queue.push x q_user and
         enqueue_all  x = Queue.push x q_user;
                          Queue.push x q_everyone in
     let flush_one (u: user) = 
-            send_one user (if user == u then q_user else q_everyone) in
+            send_one u (if user == u then q_user else q_everyone) in
     let flush_all ()   = List.iter flush_one users in
     
     let process_action : send_remote_action -> unit = function
@@ -769,7 +774,7 @@ let process_actions debug (user: user) actions : unit =
     enqueue_user Unlock;
 
     if debug then (
-        print_endline "SERVER CORE LOOP";
+        print_newline ();
         print_string "user: ";
         print_endline @@ Debug.string_of_user user;
         print_string "actions: ";
@@ -778,7 +783,7 @@ let process_actions debug (user: user) actions : unit =
         print_endline @@ string_of_list Debug.string_of_receive_action @@ list_of_queue q_user;
         print_string "q_everyone: ";
         print_endline @@ string_of_list Debug.string_of_receive_action @@ list_of_queue q_everyone;
-        print_endline "END SERVER CORE LOOP");
+        );
 
     (* Update the server copy of the document *)
     let apply1 state action = fst @@ apply_remote_action state action in
@@ -821,10 +826,10 @@ let server_main (server_args: server_args) (on_ready: unit->unit) : unit =
 
     let auth_user (conn: connection) (actions: send_remote_action list) : user option =
         match actions with
-        | OpenDocument (document_name, username) :: _ ->
+        | OpenDocument (document_name, name) :: _ ->
             let document = get_document document_name in
             let uid = List.length !(document.users) in
-            let user = { conn; document; uid } in
+            let user = { conn; document; uid; name } in
             document.users := user :: !(document.users);
             Some user
         | _ -> None in
@@ -893,19 +898,21 @@ type cli_args = {
 }
     
 let parse_args () : cli_args =
-    let usage_msg = "text [--debug] [--dir DIR] [--stand-alone|--server|--client] FILE" in
-    let debug = ref false 
-    and mode = ref StandAlone
-    and dir = ref None
-    and files = ref [] in
-    let anon_fun filename = files := filename :: !files
-    and set_mode m = (Arg.Unit (fun () -> mode := m))
-    and set_option_string r = (Arg.String (fun s -> r := Some s)) in
+    let usage_msg = "text [--debug] [--dir DIR] [--stand-alone|--server|--client] FILE" and
+        debug = ref false and
+        mode = ref StandAlone and
+        dir = ref None and
+        user = ref None and
+        files = ref [] in
+    let anon_fun filename = files := filename :: !files and
+        set_mode m = (Arg.Unit (fun () -> mode := m)) and
+        set_option_string r = (Arg.String (fun s -> r := Some s)) in
     let speclist = [
         ("--debug", Arg.Set debug, "Make the screen small (6x4) and turn off screen refresh");
         ("--stand-alone", set_mode StandAlone, "Run a stand-alone server to edit files with just one user (meant for testing only)");
         ("--client", set_mode Client, "Connect to an existing server (the default)");
         ("--server", set_mode Server, "Run a server to edit files. Files will be owned by the server uid.");
+        ("--name", set_option_string user, "Your display. [default: username]");
         ("--dir", set_option_string dir, "Set the server working directory, where text files will be located.");
         ("--", Arg.Rest anon_fun, "Stop parsing arguments");
     ] in
@@ -916,7 +923,8 @@ let parse_args () : cli_args =
         | Server -> Some "/var/text"
         | StandAlone -> Some (Sys.getcwd ())
         in option_or dir default in
-    let user = (Unix.getuid () |> Unix.getpwuid).pw_name in (* TODO: Truncate long names *)
+    let user = Option.value (!user) ~default:(Unix.getuid () |> Unix.getpwuid).pw_name in 
+    (* TODO: Truncate long names *)
     let socket = if !mode = StandAlone then "textmu.socket" else "/tmp/textmu.socket" in
     let dir = get_dir !mode !dir in
     let only_file = match (List.length !files) with

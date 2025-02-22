@@ -46,6 +46,7 @@ type connection = {
 and user = {
     conn: connection;
     document: document;
+    name: string;
     uid: int;
 }
 and document = {

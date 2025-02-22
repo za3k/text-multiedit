@@ -33,9 +33,11 @@ let empty_document document_name = {
     document_name;
     per_user = []
 }
+
+let test_doc_name = "TESTING.txt"
 let testing_document = {
     text="  RAINBOWrainbowRAINBOW\nThis is the second line.\nThis is the third line.\nThis is the fourth line\nThis is the fifth line\n"; 
-    document_name="test_file.txt";
+    document_name=test_doc_name;
     per_user = 
         []
     (*
@@ -78,6 +80,9 @@ let rec suffixes = function (* In order from biggest to smallest *)
 let prefixes l = (* In order from biggest to smallest *)
     l |> List.rev |> suffixes |> List.map List.rev
 let string_of_list = Debug.string_of_list
+let truncate len s =
+    if String.length s <= len then s
+    else String.sub s 0 (len-1)
 
 let get_cursor (state: state) (local_state: local_state) : int option =
     let user = match local_state.uid with
@@ -117,8 +122,10 @@ let shortcuts : (string list * (string*string) option * button) list = [
     (["\011"], Some ("C-k", "Cut"), Cut);
     (["\027[1;3B"], Some ("A-↓", "Scroll Down"), ScrollDown); (* Alt-Down *)
     (["\027[1;3A"], Some ("A-↑", "Scroll Up"), ScrollUp); (* Alt-Up *)
+    (*
     (["\007"], Some ("C-g", "Help"), Help); (* Ctrl-G because Ctrl-H is backspace *)
     (["\n"], Some ("C-j", "Justify"), Justify); (* Requires ~ICRNL terminal setting to tell apart from enter *)
+    *)
 
     (["\027[6~"], None, PageDown);
     (["\027[5~"], None, PageUp);
@@ -756,6 +763,7 @@ let process_actions dir debug (user: user) actions : unit =
             enqueue_all @@ ReplaceText (user.uid,a,b,c)
         | Save -> 
             let state = !(document.state) in
+            if state.document_name = test_doc_name then () else
             save (path dir state.document_name) state.text
         | OpenDocument (_, username) ->
             let state = !(document.state) in
@@ -843,7 +851,7 @@ let server_main (server_args: server_args) (on_ready: unit->unit) : unit =
         documents := StringMap.update docname (function
             | Some x -> Some x
             | None -> 
-                if docname = "TESTING" then Some { state=ref testing_document; users=ref [] }
+                if docname = test_doc_name then Some { state=ref testing_document; users=ref [] }
                 else
                     let text = Option.value (load (path server_args.dir docname)) ~default:"\n" in
                     let state = { text; per_user=[]; document_name=docname } in
@@ -950,12 +958,11 @@ let parse_args () : cli_args =
         | Server -> Some "/var/text"
         | StandAlone -> Some (Sys.getcwd ())
         in option_or dir default in
-    let user = Option.value (!user) ~default:(Unix.getuid () |> Unix.getpwuid).pw_name in 
-    (* TODO: Truncate long names *)
+    let user = Option.value (!user) ~default:(Unix.getuid () |> Unix.getpwuid).pw_name |> truncate 12 in 
     let socket = if !mode = StandAlone then "textmu.socket" else "/tmp/textmu.socket" in
     let dir = get_dir !mode !dir in
     let only_file = match (List.length !files) with
-        | 0 -> "TESTING"
+        | 0 -> test_doc_name
         | 1 -> List.hd !files
         | _ -> Arg.usage speclist usage_msg; exit 3 in
     { 

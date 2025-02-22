@@ -36,12 +36,14 @@ TEXTMU - The complete list
 	[x] Add document setup messages when a user connects
     [x] Have a dictionary of documents -- look up or create one on demand
 	[x] Add file load+save
+    [ ] Don't crash if a user disconnects
 [x] Fix bug where the blank document doesn't show a cursor or the line number
 [x] If there is one user, their name should display only half-width at the bottom
 [ ] Terminal resizing
     [x] Listen for terminal resize
     [ ] Detect the terminal size -- requires C, punt this (see: https://github.com/cryptosense/terminal_size/blob/master/src/terminal_size_stubs.c)
     [ ] Change the terminal size
+    [ ] On terminal resize, the cursor can exit the view. Decide what to do in this case.
 [ ] Add a "colored string" type to simplify display + padding logic
 [ ] Refactor pos/line/sline logic
 	- Move pos/line/sline logic into a separate module.
@@ -96,6 +98,7 @@ TEXTMU - The complete list
 [ ] Fix all known bugs
 	[ ] Up/down should remember the "imaginary" column off the right end the cursor is on until the user types or presses left/right
     [ ] Cut goes before the cursor--if this is off the top of the screen, should the screen scroll? check nano behavior
+    [ ] Truncate very long display names
 [ ] Scan the code and fix every place an exception can possibly be throwing, removing them one at a time
 [ ] Upload the finished binary to tilde as /bin/text
 [ ] Test multi-user editing

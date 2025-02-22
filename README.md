@@ -37,6 +37,7 @@ TEXTMU - The complete list
     [ ] Have a dictionary of documents -- look up or create one on demand
 	[ ] Add file load+save
 [x] Fix bug where the blank document doesn't show a cursor or the line number
+[x] If there is one user, their name should display only half-width at the bottom
 [ ] Terminal resizing
     [x] Listen for terminal resize
     [ ] Detect the terminal size -- requires C, punt this (see: https://github.com/cryptosense/terminal_size/blob/master/src/terminal_size_stubs.c)

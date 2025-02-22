@@ -524,7 +524,7 @@ let status_line width state local_state =
         let lengths = List.map bit_len bits and
             num_bits = List.length bits in
         let max_len = List.fold_left max 0 lengths and
-            bit_width = (width / num_bits) - 2 in
+            bit_width = (width / (max 2 num_bits)) - 2 in
         if bit_width < max_len then None else
 
         let slack = width - (num_bits * bit_width) in
@@ -563,7 +563,7 @@ let display (state: state) (local_state: local_state) : unit =
         height = viewport_height local_state.terminal_size in
     let document_lines = display_viewport text_width state.text color viewport false in
     let lines = 
-        title_line status_width state.document_name
+          title_line status_width state.document_name
         @ document_lines
         @ spacer_lines status_width (max (height - (List.length document_lines)) 0)
         @ error_line status_width local_state.error
@@ -708,12 +708,6 @@ let free_color (state: state) : background_color =
     | [] -> White (* 17th editor and beyond all get the same color *)
     | c :: _ -> c
 
-type server_args = {
-    dir: string;
-    socket: string;
-    debug: bool;
-}
-
 let process_actions debug (user: user) actions : unit =
     (* We got some actions from a user. Do the commands they send.
         This will involve:
@@ -791,6 +785,12 @@ let process_actions debug (user: user) actions : unit =
 
     (* Send out messages to users *)
     flush_all ()
+
+type server_args = {
+    dir: string;
+    socket: string;
+    debug: bool;
+}
 
 let server_main (server_args: server_args) (on_ready: unit->unit) : unit =
     (* If the client exits, we should not exit *)
@@ -977,9 +977,9 @@ let main () : unit =
     | Client -> fail_catastrophically client_main args.client_args
     | Server -> fail_catastrophically (server_main args.server_args) ignore
     | StandAlone ->
-        let (on_ready, wait_until_ready) = cvar () in
+        let (set_ready, wait_until_ready) = cvar () in
         let server = Domain.spawn
-            (fun () -> fail_catastrophically (server_main args.server_args) on_ready)
+            (fun () -> fail_catastrophically (server_main args.server_args) set_ready)
         in
         wait_until_ready ();
         fail_catastrophically client_main args.client_args;

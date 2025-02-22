@@ -39,6 +39,7 @@ type receive_action =
     | SetUser of int
     | Unlock
 
+(* These don't really need to be in types.ml except we want debug printing for 'user' *)
 type connection = {
     inp: send_remote_action list Input.t;
     out: receive_action list Output.t;

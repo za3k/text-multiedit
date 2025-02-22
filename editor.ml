@@ -423,7 +423,7 @@ let display_viewport (width: int) (text: string) (color_of: int -> background_co
                 colorized_sline = (sline |> String.to_seq |> mapi colorize |> List.of_seq |> String.concat "") and
                 (* We have to pad horizontally here because of ANSI escape codes mucking with string lengths *)
                 padding = String.make (max 0 (width - (String.length sline))) ' ' in
-            if colorized_sline = "" then None else
+            if colorized_sline = "" then None else (* This is needed because of the visible_range colorizining hack, and the illegal document ''. *)
             line_number ^ sline_num ^ colorized_sline ^ padding |> Option.some)
     |> List.of_seq
 

@@ -214,8 +214,11 @@ let () =
 let no_color pos = None in
 let color_zero pos = if pos = 0 then Some Red else None in
 add_eq_tests ~printer:(Debug.string_of_list (fun s -> Printf.sprintf "\"%s\"" (String.escaped s))) "display_viewport" [
-	((display_viewport 6 "\n" no_color (0,0) false),   ["   1       "]);
+	((display_viewport 6 "\n" no_color   (0,0) false),  ["   1       "]);
+	((display_viewport 6 "x\n" no_color   (0,1) false), ["   1 x     "]);
 	((display_viewport 6 "\n" color_zero (0,0) false), ["   1 "^(colorize Red " ") ^ "     "]);
+	((display_viewport 6 "x\n" color_zero (0,1) false), ["   1 "^(colorize Red "x") ^ "     "]);
+	((display_viewport 6 ""   no_color   (0,0) false), []);
 ]
 
 (*let rec sline_difference (width: int) (text: string) (pos1: int) (pos2: int) : sline_delta =*)

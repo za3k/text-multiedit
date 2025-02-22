@@ -561,7 +561,8 @@ let display (state: state) (local_state: local_state) : unit =
         @ status_line status_width state local_state
         @ display_help status_width in
 
-    print_lines lines
+    print_lines lines;
+    Debug.string_of_list (Printf.sprintf "'%s'") lines |> print_endline
 
 (* [Go to step 1] *)
 (* Teardown:
@@ -774,7 +775,6 @@ let server_main (server_args: server_args) (on_ready: unit->unit) : unit =
                 let state = !(document.state) in
                 (* TODO: Load the document for the user that joined *)
 
-                (* TODO: Find a free color *)
                 let color = free_color state in
                 enqueue_all @@ UserJoins { user=username; cursor=0; color=color };
                 enqueue_user @@ SetUser user.uid in
@@ -917,7 +917,7 @@ let cvar () : (unit -> unit) * (unit -> unit) =
             Condition.broadcast cv and
         wait_until_ready () =
             while not @@ Atomic.get flag do
-                Condition.wait cv
+                Condition.wait cv m
             done
     in (set_ready, wait_until_ready)
         

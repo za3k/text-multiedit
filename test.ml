@@ -14,7 +14,7 @@ let make_test ?printer : ('a * 'a) -> test = function
 let add_eq_tests ?printer (label: string) (tests: ('a * 'a) list) : unit =
     label >::: List.map (make_test ?printer) (List.rev tests) |> add_test
 
-let term = {cols=6+5; rows=4+4} (* Document size: 6 cols x 4 rows *)
+let term = {cols=6+5; rows=4+5} (* Document size: 6 cols x 4 rows *)
 
 (* Printers *)
 let string_of_iit = function
@@ -101,6 +101,15 @@ add_eq_tests "pos_of" [
 
 let () =
 let text1 = "iiiiiiiiixiii\niiiiiiiiixiiiiiiiiixiiiiiii\n"
+(*          "iiiiii
+             iiixii
+			 i\n
+			 iiiiii
+			 iiixii
+			 iiiiii
+			 ixiiii
+			 iii\n"
+*)
 and viewport ?(terminal_size=term) text view =
     let fake_state text = { text; document_name=""; per_user=[] }
     and fake_local_state view = { view; move_since_cut=false; clipboard=""; uid=None; terminal_size; error=None; locked=false } in
@@ -199,6 +208,14 @@ add_eq_tests ~printer:string_of_cursor_bound "cursor_in_viewport" [
     ((cursor_in_viewport text2 term 0 20), OffBottom 1);
     ((cursor_in_viewport text2 term 0 22), OffBottom 1);
     ((cursor_in_viewport text2 term 0 39), OffBottom 5);
+]
+
+let () =
+let no_color pos = None in
+let color_zero pos = if pos = 0 then Some Red else None in
+add_eq_tests ~printer:(Debug.string_of_list (fun s -> Printf.sprintf "\"%s\"" (String.escaped s))) "display_viewport" [
+	((display_viewport 6 "\n" no_color (0,0) false),   ["   1       "]);
+	((display_viewport 6 "\n" color_zero (0,0) false), ["   1 "^(colorize Red " ") ^ "     "]);
 ]
 
 (*let rec sline_difference (width: int) (text: string) (pos1: int) (pos2: int) : sline_delta =*)

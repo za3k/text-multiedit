@@ -31,10 +31,12 @@ TEXTMU - The complete list
 	[x] Stand-alone mode: Pass in a condition variable to the server, which is triggered when the user is ready
     [x] Make sure the server PRINTS AN ERROR MESSAGE if it crashes with an exception--this appears to not be the default! Ex: Sys.remove "non-existent file"
     [x] Send messages to all users, not just one
+	[x] Add message queues for each user
+    [x] Assign user colors
 	[ ] Add document setup messages when a user connects
     [ ] Have a dictionary of documents -- look up or create one on demand
 	[ ] Add file load+save
-	[ ] Add message queues for each user
+[ ] Fix bug where the blank document doesn't show a cursor or the line number
 [ ] Terminal resizing
     [x] Listen for terminal resize
     [ ] Detect the terminal size -- requires C, punt this (see: https://github.com/cryptosense/terminal_size/blob/master/src/terminal_size_stubs.c)

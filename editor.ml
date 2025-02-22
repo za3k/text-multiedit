@@ -344,7 +344,15 @@ let apply_remote_action (state: state) : receive_action -> (state * (local_state
     | UserJoins user_state -> 
         ({state with per_user = state.per_user @ [user_state]}, Fun.id)
     | UserLeaves uid -> 
-        ({state with per_user = remove1 uid state.per_user}, Fun.id)
+        let state = {state with per_user = remove1 uid state.per_user} in
+        let adjust = function
+            | None -> None
+            | Some u when u < uid -> Some u
+            | Some u when u = uid -> failwith "apply_remote_action: The current user left."
+            | Some u -> Some (u - 1) in
+        let rest (local_state: local_state) =
+            { local_state with uid=adjust local_state.uid} in
+        (state, rest)
     | SetUser uid -> 
         let rest local_state : local_state =
             {local_state with uid=Some uid} in
@@ -706,9 +714,85 @@ type server_args = {
     debug: bool;
 }
 
+let process_actions debug (user: user) actions : unit =
+    (* We got some actions from a user. Do the commands they send.
+        This will involve:
+        - Changing the document
+        - Possibly changing the filesystem (save commmand)
+        - Sending back responses to all users on that document right now
+        TODO: Deal with user disconnections, too.
+    *)
+    let document = user.document and
+        users = !(user.document.users) and
+        list_of_queue q = List.of_seq @@ Queue.to_seq q and
+        q_user = Queue.create () and
+        q_everyone = Queue.create () in
+    let send_one user (q: receive_action Queue.t) : unit = 
+            if not @@ Queue.is_empty q then
+            Output.send user.conn.out (list_of_queue q) and
+        enqueue_user x = Queue.push x q_user and
+        enqueue_all  x = Queue.push x q_user;
+                         Queue.push x q_everyone in
+    let flush_one (u: user) = 
+            send_one user (if user == u then q_user else q_everyone) in
+    let flush_all ()   = List.iter flush_one users in
+    
+    let process_action : send_remote_action -> unit = function
+        | ReplaceText (a,b,c) ->
+            enqueue_all @@ ReplaceText (user.uid,a,b,c)
+        | Save -> 
+            (* TODO: Actually save the document *)
+            () 
+        | OpenDocument (_, username) ->
+            let state = !(document.state) in
+
+            (* Load the document for the user that joined by sending fake events *)
+            (* Have a fake user join, "create" the document, and leave *)
+            enqueue_user @@ UserJoins { user="god"; cursor=0; color=Black };
+            enqueue_user @@ ReplaceText (0,0,1,state.text);
+            enqueue_user @@ UserLeaves 0;
+
+            (* Have all previous users "join".
+                The new user is not yet in document.state.per_user *)
+            let user_joins u =
+                enqueue_user @@ UserJoins u in
+            List.map user_joins state.per_user;
+
+            (* Now announce the new user that just joined *)
+            let color = free_color state in
+            enqueue_all @@ UserJoins { user=username; cursor=0; color=color };
+            enqueue_user @@ SetUser user.uid (* Our logic is such that this is the same as the computed value *) 
+    in
+
+    (* Process each action *)
+    List.iter process_action actions;
+    enqueue_user Unlock;
+
+    if debug then (
+        print_endline "SERVER CORE LOOP";
+        print_string "user: ";
+        print_endline @@ Debug.string_of_user user;
+        print_string "actions: ";
+        print_endline @@ string_of_list Debug.string_of_remote_action @@ actions;
+        print_string "q_user: ";
+        print_endline @@ string_of_list Debug.string_of_receive_action @@ list_of_queue q_user;
+        print_string "q_everyone: ";
+        print_endline @@ string_of_list Debug.string_of_receive_action @@ list_of_queue q_everyone;
+        print_endline "END SERVER CORE LOOP");
+
+    (* Update the server copy of the document *)
+    let apply1 state action = fst @@ apply_remote_action state action in
+    document.state := Queue.fold apply1 !(document.state) q_everyone;
+
+    (* Send out messages to users *)
+    flush_all ()
+
 let server_main (server_args: server_args) (on_ready: unit->unit) : unit =
     (* If the client exits, we should not exit *)
     Sys.set_signal Sys.sigpipe Sys.Signal_ignore; 
+
+    (* debug flag *)
+    let process_actions = process_actions server_args.debug in
 
     (* Listen on a socket for client connections *)
     let socket = open_unix_socket server_args.socket in
@@ -745,71 +829,6 @@ let server_main (server_args: server_args) (on_ready: unit->unit) : unit =
             Some user
         | _ -> None in
         
-    let process_actions user actions : unit =
-        (* We got some actions from a user. Do the commands they send.
-           This will involve:
-            - Changing the document
-            - Possibly changing the filesystem (save commmand)
-            - Sending back responses to all users on that document right now
-           TODO: Deal with user disconnections, too.
-        *)
-        let document = user.document and
-            users = !(user.document.users) and
-            list_of_queue q = List.of_seq @@ Queue.to_seq q and
-            q_user = Queue.create () and
-            q_everyone = Queue.create () in
-        let send_one user (q: receive_action Queue.t) : unit = 
-                if not @@ Queue.is_empty q then
-                Output.send user.conn.out (list_of_queue q) and
-            enqueue_user x = Queue.push x q_user and
-            enqueue_all  x = Queue.push x q_user;
-                             Queue.push x q_everyone in
-        let flush_one u    = 
-                send_one user (if user == u then q_user else q_everyone) in
-        let flush_all ()   = List.iter flush_one users in
-        
-        let process_action (action: send_remote_action) = 
-            let () = match action with
-            | ReplaceText (a,b,c) ->
-                enqueue_all @@ ReplaceText (user.uid,a,b,c)
-            | Save -> 
-                (* TODO: Actually save the document *)
-                () 
-            | OpenDocument (_, username) ->
-                let state = !(document.state) in
-                (* TODO: Load the document for the user that joined *)
-
-                let color = free_color state in
-                enqueue_all @@ UserJoins { user=username; cursor=0; color=color };
-                enqueue_user @@ SetUser user.uid in
-            enqueue_user Unlock;
-
-        let debugging 
-            (user: user)
-            (actions: send_remote_action list)
-            (q1: receive_action Queue.t)
-            (q2: receive_action Queue.t) =
-            print_endline "SERVER CORE LOOP";
-            print_string "user: ";
-            print_endline @@ Debug.string_of_user user;
-            print_string "actions: ";
-            print_endline @@ string_of_list Debug.string_of_remote_action @@ actions;
-            print_string "q_user: ";
-            print_endline @@ string_of_list Debug.string_of_receive_action @@ list_of_queue q1;
-            print_string "q_everyone: ";
-            print_endline @@ string_of_list Debug.string_of_receive_action @@ list_of_queue q2;
-            print_endline "END SERVER CORE LOOP"
-        in 
-            if server_args.debug then
-                debugging user actions q_user q_everyone;
-
-        (* Update the server copy of the document *)
-        let apply1 state action = fst @@ apply_remote_action state action in
-        document.state := Queue.fold apply1 !(document.state) q_everyone in
-
-        (* Send out messages to users *)
-        List.iter process_action actions; flush_all ();
-        in
 
     while true do
         Input.select (

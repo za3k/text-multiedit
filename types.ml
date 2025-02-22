@@ -25,18 +25,18 @@ type send_remote_action =
     (* Remote only *)
     | Save 
     (* Remote, will be sent back by the server as receive_action *)
-    | OpenDocument of string * string
-    | ReplaceText of int * int * string
+    | OpenDocument of string * string (* document name, user display name *)
+    | ReplaceText of int * int * string (* start index, length of replaced text, replacement text *)
 type send_action = Local of send_local_action | Remote of send_remote_action
 
-type viewport = int * int
-type cursor_bound = | OnScreen | OffTop of int | OffBottom of int
+type viewport = int * int (* start, end POS values (inclusive) *)
+type cursor_bound = | OnScreen | OffTop of int | OffBottom of int (* by how many lines *)
 
 type receive_action =  
-    | ReplaceText of int * int * int * string
-    | UserLeaves of int
-    | UserJoins of user_state
-    | SetUser of int
+    | ReplaceText of int * int * int * string (* uid, start index, length of replaced text, replacement text *)
+    | UserLeaves of int (* uid *)
+    | UserJoins of user_state (* uid is implicit *)
+    | SetUser of int (* uid *)
     | Unlock
 
 (* These don't really need to be in types.ml except we want debug printing for 'user' *)

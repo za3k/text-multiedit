@@ -318,7 +318,7 @@ let apply_remote_action (state: state) : receive_action -> (state * (local_state
         let text_length = String.length state.text in
         let user = List.nth state.per_user ed_uid in
         let pos = user.cursor + start in (* Clip removed part to bounds of the document *)
-        let pos = min (max 0 pos) (text_length - 1) in
+        let pos = Text.document_clamp state.text pos in
         let length = min length (text_length - 1 - pos) in
         let net_change = (String.length replacement) - length in
         let new_text = (String.sub state.text 0 pos) ^ replacement ^ (String.sub state.text (pos + length) (text_length - pos - length)) in
@@ -693,6 +693,21 @@ let open_unix_socket path =
     Unix.listen fd 10;
     Unix.in_channel_of_descr fd
 
+let path (dir: string) (docname: string) : string =
+    dir ^ "/" ^ docname
+
+let load path : string option =
+    match In_channel.open_bin path with
+        | exception Sys_error _ -> None
+        | c -> 
+            let t = In_channel.input_all c in
+            (* TODO: Add a trailing newline if needed *)
+            In_channel.close c; 
+            Some t
+
+let save path contents : unit =
+    ()
+
 let free_color (state: state) : background_color =
     let used_colors = List.map (fun u -> u.color) state.per_user in
     let is_free_color c = not @@ List.mem c used_colors in
@@ -741,7 +756,7 @@ let process_actions debug (user: user) actions : unit =
             (* Load the document for the user that joined by sending fake events *)
             (* Have a fake user join, "create" the document, and leave *)
             enqueue_user @@ UserJoins { user="god"; cursor=0; color=Black };
-            enqueue_user @@ ReplaceText (0,0,1,state.text);
+            enqueue_user @@ ReplaceText (0,0,0,String.sub state.text 0 ((String.length state.text)-1));
             enqueue_user @@ UserLeaves 0;
 
             (* Have all previous users "join".
@@ -779,6 +794,7 @@ let process_actions debug (user: user) actions : unit =
     (* Send out messages to users *)
     flush_all ()
 
+module StringMap = Map.Make(String)
 type server_args = {
     dir: string;
     socket: string;
@@ -810,12 +826,22 @@ let server_main (server_args: server_args) (on_ready: unit->unit) : unit =
         (*
         documents : (string, document) Map.t = Map.empty in*)
 
-    let only_document = { state=ref testing_document; users=ref [] } in
-    let get_document docname =
-        (* TODO: Find an existing document instead of making a new instance every time *)
-        (* TODO: Actually read/create documents *)
-        (* TODO: Load from file *)
-        only_document in
+    let load docname = load (path server_args.dir docname) in
+    let save docname = save (path server_args.dir docname) in
+
+    let documents = ref StringMap.empty in
+
+    let get_document docname : document =
+        documents := StringMap.update docname (function
+            | Some x -> Some x
+            | None -> 
+                if docname = "TESTING" then Some { state=ref testing_document; users=ref [] }
+                else
+                    let text = Option.value (load docname) ~default:"\n" in
+                    let state = { text; per_user=[]; document_name=docname } in
+                    Some { state=ref state; users=ref [] }
+        ) !documents;
+        StringMap.find docname !documents in
 
     let auth_user (conn: connection) (actions: send_remote_action list) : user option =
         match actions with
@@ -921,7 +947,7 @@ let parse_args () : cli_args =
     let socket = if !mode = StandAlone then "textmu.socket" else "/tmp/textmu.socket" in
     let dir = get_dir !mode !dir in
     let only_file = match (List.length !files) with
-        | 0 -> "testonly.txt"
+        | 0 -> "TESTING"
         | 1 -> List.hd !files
         | _ -> Arg.usage speclist usage_msg; exit 3 in
     { 

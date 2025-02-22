@@ -38,3 +38,21 @@ type receive_action =
     | UserJoins of user_state
     | SetUser of int
     | Unlock
+
+type server_args = {
+    dir: string;
+    socket: string;
+}
+type connection = {
+    inp: send_remote_action list Input.t;
+    out: receive_action list Output.t;
+}
+and user = {
+    conn: connection;
+    document: document;
+    uid: int;
+}
+and document = {
+    state: state ref;
+    users: user list ref; (* Maybe *)
+}

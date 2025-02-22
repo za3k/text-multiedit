@@ -22,23 +22,23 @@ TEXTMU - The complete list
 	[x] Add a way to listen for a list of In-Channels to be ready
 [x] Out-Channels
 	[x] Write them (file-backed, writes a specific type)
-[ ] Terminal resizing
-    [x] Listen for terminal resize
-    [ ] Detect the terminal size -- requires C, punt this (see: https://github.com/cryptosense/terminal_size/blob/master/src/terminal_size_stubs.c)
-    [ ] Change the terminal size
 [x] Write a real server, but that sends back simple dummy data and assumes there's one connection at a time
 [x] Write the real client logic
 	[x] Listen to first of (network, keyboard, SIGWINCH) using In-Channels
 	[x] Add keyboard locking/unlocking, Don't listen to keyboard while locked
 [ ] Write the real server logic
     [x] Support multiple connections
-    [ ] Send messages to all users, not just one
 	[x] Stand-alone mode: Pass in a condition variable to the server, which is triggered when the user is ready
     [x] Make sure the server PRINTS AN ERROR MESSAGE if it crashes with an exception--this appears to not be the default! Ex: Sys.remove "non-existent file"
+    [x] Send messages to all users, not just one
 	[ ] Add document setup messages when a user connects
-    [ ] Support multiple documents
+    [ ] Have a dictionary of documents -- look up or create one on demand
 	[ ] Add file load+save
 	[ ] Add message queues for each user
+[ ] Terminal resizing
+    [x] Listen for terminal resize
+    [ ] Detect the terminal size -- requires C, punt this (see: https://github.com/cryptosense/terminal_size/blob/master/src/terminal_size_stubs.c)
+    [ ] Change the terminal size
 [ ] Add a "colored string" type to simplify display + padding logic
 [ ] Refactor pos/line/sline logic
 	- Move pos/line/sline logic into a separate module.
@@ -101,8 +101,7 @@ TEXTMU - The complete list
 [ ] Post about 'text' to blogsuchin
 [ ] Post about 'text' to tilde chat
 [ ] Post about 'text' to my own blog
-[ ] Add a documentation patch to https://ocaml.org/manual/5.3/api/Printexc.html to mention -g, OCAMLRUNPARAM=b, and record_backtrace
-     'Note that recording the call stack must be explicitly enabled. See record_backtrace'
+[ ] Add a documentation patch to close https://github.com/ocaml/ocaml/issues/13822 (Printexc backtraces)
 [ ] You are done!
 
 FUTURE FEATURES

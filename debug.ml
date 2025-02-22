@@ -23,17 +23,21 @@ let string_of_button = function
     | Key c -> Printf.sprintf "<Key '%s'>" (String.escaped (String.make 1 c))
     | Unknown s -> Printf.sprintf "<Unknown \"%s\">" (String.escaped s)
 
+let string_of_remote_action = function
+    | Save -> "<Save>"
+    | OpenDocument (u, d) -> Printf.sprintf "<OpenDocument \"%s\" \"%s\">" (String.escaped u) (String.escaped d)
+    | ReplaceText (start, len, s) -> Printf.sprintf "<ReplaceText %d %d \"%s\">" start len (String.escaped s)
+let string_of_local_action = function
+    | CopyText s -> Printf.sprintf "<CopyText \"%s\">" (String.escaped s)
+    | CutFlag f -> Printf.sprintf "<CutFlag %s>" (Bool.to_string f)
+    | DisplayError None -> "<DisplayError OK>"
+    | DisplayError Some s -> Printf.sprintf "<DisplayError \"%s\">" (String.escaped s)
+    | ShiftView n -> Printf.sprintf "<ShiftView %d>" n
+    | Lock -> "<Lock>"
+    | Exit -> "<Exit>"
 let string_of_send_action = function
-    | Remote Save -> "<Save>"
-    | Remote OpenDocument (u, d) -> Printf.sprintf "<OpenDocument \"%s\" \"%s\">" (String.escaped u) (String.escaped d)
-    | Remote ReplaceText (start, len, s) -> Printf.sprintf "<ReplaceText %d %d \"%s\">" start len (String.escaped s)
-    | Local CopyText s -> Printf.sprintf "<CopyText \"%s\">" (String.escaped s)
-    | Local CutFlag f -> Printf.sprintf "<CutFlag %s>" (Bool.to_string f)
-    | Local DisplayError None -> "<DisplayError OK>"
-    | Local DisplayError Some s -> Printf.sprintf "<DisplayError \"%s\">" (String.escaped s)
-    | Local ShiftView n -> Printf.sprintf "<ShiftView %d>" n
-    | Local Lock -> "<Lock>"
-    | Local Exit -> "<Exit>"
+    | Local a -> string_of_local_action a
+    | Remote a -> string_of_remote_action a
 
 let string_of_cursor_bound = function 
     | OnScreen -> "OnScreen"
@@ -46,3 +50,10 @@ let string_of_receive_action = function
     | UserJoins { user } -> Printf.sprintf "UserJoins[un=%s,...]" user
     | SetUser uid -> Printf.sprintf "SetUser[u=%d]" uid
     | Unlock -> "Unlock[]"
+
+let string_of_user = function
+    | { conn; document; uid } ->
+        Printf.sprintf "User[uid=%d; doc=%s]" uid !(document.state).document_name
+
+let string_of_list f l =
+    String.concat " " (List.map f l) |> Printf.sprintf "[%s]"

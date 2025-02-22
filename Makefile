@@ -1,8 +1,8 @@
-LIBS=input.ml output.ml types.ml debug.ml text.ml editor.ml
+LIBS=output.ml input.ml types.ml debug.ml text.ml editor.ml
 
 run: editor
 	./$<
-test: test
+test: test.exe
 	./$<; rm *.log *.cache
 clean:
 	rm -f *.cmi *.cmo *.o editor a.out *.cmx
@@ -13,7 +13,7 @@ cloc: $(LIBS) main.ml Makefile
 editor: $(LIBS) main.ml
 	chronic ocamlopt -g -ccopt -static -I +unix unix.cmxa -o $@ $^
 	rm -f *.cmi *.cmo *.cmx *.o
-test: $(LIBS) test.ml
+test.exe: $(LIBS) test.ml
 	ocamlfind ocamlc -linkpkg -package ounit2 -o $@ $^
 %.o: %.ml
 	ocamlc -o $@ $<

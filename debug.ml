@@ -27,6 +27,8 @@ let string_of_remote_action = function
     | Save -> "<Save>"
     | OpenDocument (u, d) -> Printf.sprintf "<OpenDocument \"%s\" \"%s\">" (String.escaped u) (String.escaped d)
     | ReplaceText (start, len, s) -> Printf.sprintf "<ReplaceText %d %d \"%s\">" start len (String.escaped s)
+    | Disconnect -> "<Disconnect>"
+
 let string_of_local_action = function
     | CopyText s -> Printf.sprintf "<CopyText \"%s\">" (String.escaped s)
     | CutFlag f -> Printf.sprintf "<CutFlag %s>" (Bool.to_string f)
@@ -35,6 +37,7 @@ let string_of_local_action = function
     | ShiftView n -> Printf.sprintf "<ShiftView %d>" n
     | Lock -> "<Lock>"
     | Exit -> "<Exit>"
+
 let string_of_send_action = function
     | Local a -> string_of_local_action a
     | Remote a -> string_of_remote_action a

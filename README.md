@@ -26,7 +26,10 @@ TEXTMU - The complete list
 [x] Write the real client logic
 	[x] Listen to first of (network, keyboard, SIGWINCH) using In-Channels
 	[x] Add keyboard locking/unlocking, Don't listen to keyboard while locked
-[ ] Write the real server logic
+[x] Fix bug where the blank document doesn't show a cursor or the line number
+[x] If there is one user, their name should display only half-width at the bottom
+[x] Detect pipe close in Input/Output
+[x] Write the real server logic
     [x] Support multiple connections
 	[x] Stand-alone mode: Pass in a condition variable to the server, which is triggered when the user is ready
     [x] Make sure the server PRINTS AN ERROR MESSAGE if it crashes with an exception--this appears to not be the default! Ex: Sys.remove "non-existent file"
@@ -36,19 +39,16 @@ TEXTMU - The complete list
 	[x] Add document setup messages when a user connects
     [x] Have a dictionary of documents -- look up or create one on demand
 	[x] Add file load+save
-    [ ] Don't crash if a user disconnects
-[x] Fix bug where the blank document doesn't show a cursor or the line number
-[x] If there is one user, their name should display only half-width at the bottom
+    [x] Don't crash if a user disconnects
+[x] Refactor: Improve Input/Output
+    - Add a map function
+    - Move unix listening sockets into the class
 [ ] Terminal resizing
     [x] Listen for terminal resize
     [ ] Detect the terminal size -- requires C, punt this (see: https://github.com/cryptosense/terminal_size/blob/master/src/terminal_size_stubs.c)
     [ ] Change the terminal size
     [ ] On terminal resize, the cursor can exit the view. Decide what to do in this case.
-[ ] Add a "colored string" type to simplify display + padding logic
-[ ] Improve Input/Output
-    - Report pipe closes
-    - Add a map function
-    - Add a 
+[ ] Refactor: Add a "colored string" type to simplify display + padding logic
 [ ] Refactor pos/line/sline logic
 	- Move pos/line/sline logic into a separate module.
 	  Abstract over text ranges and positions. 

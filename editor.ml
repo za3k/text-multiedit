@@ -1,14 +1,12 @@
-(* Minimal text editor. Designed to support multiple users on one machine.
+(*  textmu, a multi-user text editor
+
+    Designed to support multiple users ssh-ed into one machine, editing a
+    set of documents at the same time.
     
-    (?) Standard 80 col max width, and use for justify?
-
-    User Color Guide (shown at bottom)
-    Shortcuts (shown at bottom)
-
     Limitations:
-        Undo/redo not supported in v1 (may require semantic actions)
-        Explicit save required
         ASCII only, no Unicode
+        Explicit save required
+        Undo/redo not supported
 *)
 
 (* CLIENT LOGIC *)
@@ -589,12 +587,6 @@ let display (state: state) (local_state: local_state) : unit =
     Send "Disconnect" to the server.
 *)
 
-let connect_unix_socket path : In_channel.t * Out_channel.t =
-    let fd = Unix.socket Unix.PF_UNIX Unix.SOCK_STREAM 0 in
-    let addr = Unix.ADDR_UNIX path in
-    Unix.connect fd addr;
-    (Unix.in_channel_of_descr fd, Unix.out_channel_of_descr fd)
-
 type client_args = {
     debug: bool;
     file: string;
@@ -634,11 +626,11 @@ let client_main (client_args: client_args) : unit =
         - Terminal resize events via SIGWINCH
         - User keyboard input (disabled if !local_state.locked
     *)
-    let (server_i, server_o) = connect_unix_socket client_args.socket in
-    let server_received : receive_action list Input.t = Input.of_file server_i and
+    let ((server_received: receive_action list Input.t), 
+        (server_sent: send_remote_action list Output.t)) = 
+            Input.of_socket client_args.socket and
         terminal_resizes : unit Input.t = Input.of_signal sigwinch and
-        key_presses : string Input.t = Input.of_file ~reader:get_keystroke stdin and
-        server_sent : send_remote_action list Output.t = Output.of_file server_o in
+        key_presses : string Input.t = Input.of_file ~reader:get_keystroke stdin in
 
     (* Initial message to server *)
     let () = Output.send server_sent [OpenDocument (client_args.file, client_args.user)] in
@@ -718,16 +710,6 @@ let client_main (client_args: client_args) : unit =
     If there are zero users connected, save the document and remove it from the
     documents list.
 *)
-
-let open_unix_socket path =
-    let clean () = if Sys.file_exists path then Sys.remove path in
-    clean (); at_exit clean;
-
-    let fd = Unix.socket Unix.PF_UNIX Unix.SOCK_STREAM 0 in
-    let addr = Unix.ADDR_UNIX path in
-    Unix.bind fd addr;
-    Unix.listen fd 10;
-    Unix.in_channel_of_descr fd
 
 let path (dir: string) (docname: string) : string =
     dir ^ "/" ^ docname
@@ -814,6 +796,8 @@ let process_actions dir debug (user: user) actions : unit =
             let color = free_color state in
             enqueue_all @@ UserJoins { user=username; cursor=0; color=color };
             enqueue_user @@ SetUser user.uid (* Our logic is such that this is the same as the computed value *) 
+        | Disconnect ->
+            enqueue_all @@ UserLeaves user.uid
     in
 
     if debug then (
@@ -857,15 +841,9 @@ let server_main (server_args: server_args) (on_ready: unit->unit) : unit =
     let process_actions = process_actions server_args.dir server_args.debug in
 
     (* Listen on a socket for client connections *)
-    let socket = open_unix_socket server_args.socket in
     let new_connections : connection Input.t =
-        let process_connection (ic: In_channel.t) =
-            let (client_fd, client_addr) = Unix.accept (Unix.descr_of_in_channel ic) in
-            {
-                inp=Input.of_file (Unix.in_channel_of_descr client_fd);
-                out=Output.of_file (Unix.out_channel_of_descr client_fd)
-            } in
-        Input.of_file ~reader:process_connection socket in
+        Input.of_listening_socket server_args.socket |> Input.map (function
+            | (inp, out) -> {inp; out}) in
 
     on_ready ();
 
@@ -895,9 +873,11 @@ let server_main (server_args: server_args) (on_ready: unit->unit) : unit =
             Some user
         | _ -> None in
 
-    let remove_conn conn = unauthed_connections := remove conn !unauthed_connections in (* TODO: Also close? *)
+    let remove_conn conn = unauthed_connections := remove conn !unauthed_connections in (* TODO: Also close pipe? *)
     let add_user user = all_users := user :: !all_users in
-    let remove_user user = all_users := remove user !all_users in
+    let remove_user user = 
+        all_users := remove user !all_users;
+        user.document.users := remove user !(user.document.users) in
 
     while true do
         Input.select (
@@ -925,11 +905,13 @@ let server_main (server_args: server_args) (on_ready: unit->unit) : unit =
                 | Closed -> remove_conn conn
         );
 
-        !all_users |> List.iter (function {conn={inp;out=_}; document=_; uid=_} as user ->
-            match Input.read inp with
+        !all_users |> List.iter (function user ->
+            match Input.read user.conn.inp with
                 | Some actions -> process_actions user actions
                 | NotReady -> ()
-                | Closed -> remove_user user
+                | Closed ->
+                    process_actions user [Disconnect];
+                    remove_user user
         )
     done
 

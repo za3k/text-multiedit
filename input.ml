@@ -8,19 +8,26 @@ type 'a read_value = NotReady | Closed | Some of 'a
 
 type handle = { file_descr: Unix.file_descr; mark_ready: unit -> unit }
 
-let of_file ?(reader: (In_channel.t -> 'a) = Marshal.from_channel) (file: In_channel.t) : 'a t =
+let default_reader = Marshal.from_channel
+let of_file ?(reader: (In_channel.t -> 'a) = default_reader) (file: In_channel.t) : 'a t =
     { file; reader; ready=ref false; closed=ref false }
 
 (* let for_listening_socket file_descr -> 'a t t = fail() *)
 
 let is_ready (channel: 'a t) : bool = !(channel.ready)
 
+let is_closed (channel: 'a t) : bool = !(channel.closed)
+
 let read (channel: 'a t) : 'a read_value =
     (* Reads a value ONLY if ready and selected by a call to 'select' *)
     if not @@ is_ready channel then NotReady
+    else if is_closed channel then Closed
     else (
         channel.ready := false;
-        Some (channel.reader channel.file)
+        try Some (channel.reader channel.file) with
+            | End_of_file ->
+                channel.closed := true;
+                Closed
     )
 
 let handle (channel: 'a t) : handle = 
@@ -39,6 +46,10 @@ let rec select (handles: handle list) : unit =
     handles 
     |> List.filter (function h -> List.mem h.file_descr ready_files)
     |> List.iter (function h -> h.mark_ready ())
+
+let map (f: 'a -> 'b) (i: 'a t) : 'b t =
+    let reader n = f @@ i.reader n in
+    of_file ~reader i.file
 
 (* TODO: Add a non-blocking select (so we can see if there are additional new connections *)
 
@@ -71,3 +82,28 @@ let of_signal (signal: int) : unit t =
     Sys.set_signal signal (Sys.Signal_handle (producer o));
 
     of_file ~reader:consumer i
+
+let of_socket ?reader ?writer (path: string) : ('a t) * ('b Output.t) =
+    let fd = Unix.socket Unix.PF_UNIX Unix.SOCK_STREAM 0 in
+    let addr = Unix.ADDR_UNIX path in
+    Unix.connect fd addr;
+    (of_file ?reader (Unix.in_channel_of_descr fd), 
+    Output.of_file ?writer (Unix.out_channel_of_descr fd))
+
+let of_listening_socket ?reader ?writer (path: string) : (('a t) * ('b Output.t)) t =
+    let open_unix_socket path =
+        let clean () = if Sys.file_exists path then Sys.remove path in
+        clean (); at_exit clean;
+
+        let fd = Unix.socket Unix.PF_UNIX Unix.SOCK_STREAM 0 in
+        let addr = Unix.ADDR_UNIX path in
+        Unix.bind fd addr;
+        Unix.listen fd 10;
+        Unix.in_channel_of_descr fd in
+
+    let process_connection (ic: In_channel.t) =
+        let (client_fd, client_addr) = Unix.accept (Unix.descr_of_in_channel ic) in
+        (of_file (Unix.in_channel_of_descr client_fd),
+        Output.of_file (Unix.out_channel_of_descr client_fd)) in
+
+    of_file ~reader:process_connection (open_unix_socket path)

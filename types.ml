@@ -27,6 +27,7 @@ type send_remote_action =
     (* Remote, will be sent back by the server as receive_action *)
     | OpenDocument of string * string (* document name, user display name *)
     | ReplaceText of int * int * string (* start index, length of replaced text, replacement text *)
+    | Disconnect
 type send_action = Local of send_local_action | Remote of send_remote_action
 
 type viewport = int * int (* start, end POS values (inclusive) *)

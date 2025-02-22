@@ -39,10 +39,6 @@ type receive_action =
     | SetUser of int
     | Unlock
 
-type server_args = {
-    dir: string;
-    socket: string;
-}
 type connection = {
     inp: send_remote_action list Input.t;
     out: receive_action list Output.t;
@@ -54,5 +50,5 @@ and user = {
 }
 and document = {
     state: state ref;
-    users: user list ref; (* Maybe *)
+    users: user list ref;
 }

@@ -37,12 +37,15 @@ let testing_document = {
     text="  RAINBOWrainbowRAINBOW\nThis is the second line.\nThis is the third line.\nThis is the fourth line\nThis is the fifth line\n"; 
     document_name="test_file.txt";
     per_user = 
+        []
+    (*
         { user="zachary"; cursor=0; color=Red;  }
         ::(List.mapi (fun i c -> { 
             user=Printf.sprintf "editor%d" (i+1);
             cursor=2+i;
             color=c
         }) (List.tl editor_colors));
+        *)
 }
 
 let init_local_state = {
@@ -661,7 +664,8 @@ let client_main (client_args: client_args) : unit =
                 ps @@ String.concat "" (List.map Debug.string_of_send_action actions); ps "\n";
             let (local, remote) = split_send actions in
             local_state := List.fold_left (apply_local_action !state) !local_state local;
-            Output.send server_sent remote
+            if not @@ List.is_empty remote then 
+                Output.send server_sent remote
             )
     done
 
@@ -683,6 +687,19 @@ let open_unix_socket path =
     Unix.listen fd 10;
     Unix.in_channel_of_descr fd
 
+let free_color (state: state) : background_color =
+    let used_colors = List.map (fun u -> u.color) state.per_user in
+    let is_free_color c = not @@ List.mem c used_colors in
+    let free_colors = List.filter is_free_color editor_colors in
+    match free_colors with
+    | [] -> White (* 17th editor and beyond all get the same color *)
+    | c :: _ -> c
+
+type server_args = {
+    dir: string;
+    socket: string;
+    debug: bool;
+}
 
 let server_main (server_args: server_args) (on_ready: unit->unit) : unit =
     (* If the client exits, we should not exit *)
@@ -737,6 +754,7 @@ let server_main (server_args: server_args) (on_ready: unit->unit) : unit =
             q_user = Queue.create () and
             q_everyone = Queue.create () in
         let send_one user (q: receive_action Queue.t) : unit = 
+                if not @@ Queue.is_empty q then
                 Output.send user.conn.out (list_of_queue q) and
             enqueue_user x = Queue.push x q_user and
             enqueue_all  x = Queue.push x q_user;
@@ -753,10 +771,11 @@ let server_main (server_args: server_args) (on_ready: unit->unit) : unit =
                 (* TODO: Actually save the document *)
                 () 
             | OpenDocument (_, username) ->
+                let state = !(document.state) in
                 (* TODO: Load the document for the user that joined *)
 
                 (* TODO: Find a free color *)
-                let color = Red in
+                let color = free_color state in
                 enqueue_all @@ UserJoins { user=username; cursor=0; color=color };
                 enqueue_user @@ SetUser user.uid in
             enqueue_user Unlock;
@@ -775,8 +794,10 @@ let server_main (server_args: server_args) (on_ready: unit->unit) : unit =
             print_endline @@ string_of_list Debug.string_of_receive_action @@ list_of_queue q1;
             print_string "q_everyone: ";
             print_endline @@ string_of_list Debug.string_of_receive_action @@ list_of_queue q2;
-            print_endline "END SERVER CORE LOOP";
-        in debugging user actions q_user q_everyone;
+            print_endline "END SERVER CORE LOOP"
+        in 
+            if server_args.debug then
+                debugging user actions q_user q_everyone;
 
         (* Update the server copy of the document *)
         let apply1 state action = fst @@ apply_remote_action state action in
@@ -882,7 +903,7 @@ let parse_args () : cli_args =
     { 
         mode = !mode; 
         client_args = { file = only_file; debug = !debug; user; socket };
-        server_args = { dir = Option.value dir ~default: ""; socket }
+        server_args = { dir = Option.value dir ~default: ""; socket; debug=(Server = !mode) }
     }
 
 let cvar () : (unit -> unit) * (unit -> unit) =

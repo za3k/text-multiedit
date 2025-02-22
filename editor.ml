@@ -191,6 +191,7 @@ let viewport state local_state =
     let width = (avail_cols local_state.terminal_size)
     and height = (viewport_height local_state.terminal_size)
     and text = state.text in
+    if text = "\n" then (0,0) else
     let (view_start, _) = Text.sline_for width text local_state.view in
     let view_end = Text.sline_add_whole width text view_start height in
     (* view_end-1 works because sometimes view_end is 1 aft:r the end of the document *)
@@ -561,8 +562,11 @@ let display (state: state) (local_state: local_state) : unit =
         @ status_line status_width state local_state
         @ display_help status_width in
 
-    print_lines lines;
-    Debug.string_of_list (Printf.sprintf "'%s'") lines |> print_endline
+    print_lines lines
+    (*
+    ;Debug.string_of_list (Printf.sprintf "'%s'") lines |> print_endline
+    ;Printf.printf "Viewport: (%d - %d)\n" (fst viewport) (snd viewport)
+    *)
 
 (* [Go to step 1] *)
 (* Teardown:

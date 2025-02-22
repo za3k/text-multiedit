@@ -120,6 +120,7 @@ add_eq_tests ~printer:string_of_iit "viewport" [
     ((viewport text1 3), (0, 19));
     ((viewport text1 7), (6, 25));
     ((viewport text1 24), (20, 41));
+    ((viewport "\n" 0), (0, 0));
 ]
 
 let () =

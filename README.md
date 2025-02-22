@@ -45,6 +45,10 @@ TEXTMU - The complete list
     [ ] Change the terminal size
     [ ] On terminal resize, the cursor can exit the view. Decide what to do in this case.
 [ ] Add a "colored string" type to simplify display + padding logic
+[ ] Improve Input/Output
+    - Report pipe closes
+    - Add a map function
+    - Add a 
 [ ] Refactor pos/line/sline logic
 	- Move pos/line/sline logic into a separate module.
 	  Abstract over text ranges and positions. 
@@ -98,7 +102,7 @@ TEXTMU - The complete list
 [ ] Fix all known bugs
 	[ ] Up/down should remember the "imaginary" column off the right end the cursor is on until the user types or presses left/right
     [ ] Cut goes before the cursor--if this is off the top of the screen, should the screen scroll? check nano behavior
-    [ ] Truncate very long display names
+    [x] Truncate very long display names
 [ ] Scan the code and fix every place an exception can possibly be throwing, removing them one at a time
 [ ] Upload the finished binary to tilde as /bin/text
 [ ] Test multi-user editing

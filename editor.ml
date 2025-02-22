@@ -60,7 +60,7 @@ let init_local_state = {
     error = None;
 }
 
-let remove1 (i: int) : 'a list -> 'a list = List.filteri (fun j x -> j <> i)
+let remove_index (i: int) : 'a list -> 'a list = List.filteri (fun j x -> j <> i)
 let remove (x: 'a) (l: 'a list) = List.filter ((!=) x) l
 let compose f g x = f (g x) (* Support OCaml 4.14.1 *)
 let copies num x = List.init num (fun _ -> x)
@@ -108,7 +108,7 @@ let get_keystroke char_reader =
     in loop "\027["
     
 let get_keystroke ic = 
-    get_keystroke (function () -> input_char ic) |> Option.some
+    get_keystroke (function () -> input_char ic)
 
 (* Step 2: Compute the [non-parameterized] action *)
 let printable_ascii = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~ " (* \n and \t are missing on purpose *)
@@ -352,7 +352,7 @@ let apply_remote_action (state: state) : receive_action -> (state * (local_state
     | UserJoins user_state -> 
         ({state with per_user = state.per_user @ [user_state]}, Fun.id)
     | UserLeaves uid -> 
-        let state = {state with per_user = remove1 uid state.per_user} in
+        let state = {state with per_user = remove_index uid state.per_user} in
         let adjust = function
             | None -> None
             | Some u when u < uid -> Some u
@@ -654,32 +654,36 @@ let client_main (client_args: client_args) : unit =
             if (!local_state).locked then [] else [Input.handle key_presses]
         ));
 
-        if Input.is_ready server_received then (
-            let msgs = Input.read_exn server_received in
-                ps @@ Printf.sprintf "Event: SERVER MSG %s\n" @@ Debug.string_of_list Debug.string_of_receive_action msgs;
-            let apply1 msg =
-                let (s, rest) = apply_remote_action !state msg in
-                state := s;
-                local_state := rest !local_state in
-            List.iter apply1 msgs
-        ) else if Input.is_ready terminal_resizes then (
-                ps "Event: TERM RESIZE\n";
-            let () = Input.read_exn terminal_resizes in
-            resize_terminal !state local_state
-            (* TODO: Shift view and/or cursor if the cursor is no longer inside the view? *)
-        ) else if Input.is_ready key_presses then (
-                ps "Event: KEYPRESS ";
-            let keystroke = Input.read_exn key_presses in
-                ps (Printf.sprintf "\"%s\" || " (String.escaped keystroke));
-            let button = get_button keystroke in
-                ps @@ Debug.string_of_button button ^ " || ";
-            let actions = compute_actions !state !local_state button in
-                ps @@ String.concat "" (List.map Debug.string_of_send_action actions); ps "\n";
-            let (local, remote) = split_send actions in
-            local_state := List.fold_left (apply_local_action !state) !local_state local;
-            if not @@ List.is_empty remote then 
-                Output.send server_sent remote
-        )
+        match Input.read server_received with
+            | Some msgs -> 
+                    ps @@ Printf.sprintf "Event: SERVER MSG %s\n" @@ Debug.string_of_list Debug.string_of_receive_action msgs;
+                let apply1 msg =
+                    let (s, rest) = apply_remote_action !state msg in
+                    state := s;
+                    local_state := rest !local_state in
+                List.iter apply1 msgs
+            | Closed -> exit 2
+            | NotReady ->
+        match Input.read terminal_resizes with
+            | Some () ->
+                    ps "Event: TERM RESIZE\n";
+                resize_terminal !state local_state
+                (* TODO: Shift view and/or cursor if the cursor is no longer inside the view? *)
+            | Closed -> failwith "terminal_resizes closed (this should never happen)"
+            | NotReady ->
+        match Input.read key_presses with
+            | Some keystroke ->
+                    ps (Printf.sprintf "Event: KEYPRESS \"%s\" || " (String.escaped keystroke));
+                let button = get_button keystroke in
+                    ps @@ Debug.string_of_button button ^ " || ";
+                let actions = compute_actions !state !local_state button in
+                    ps @@ String.concat "" (List.map Debug.string_of_send_action actions); ps "\n";
+                let (local, remote) = split_send actions in
+                local_state := List.fold_left (apply_local_action !state) !local_state local;
+                if not @@ List.is_empty remote then 
+                    Output.send server_sent remote
+            | Closed -> exit 0 (* Standard input closed *)
+            | NotReady -> ()
     done
 
 (* SERVER LOGIC *)
@@ -688,6 +692,31 @@ let client_main (client_args: client_args) : unit =
     On connect, listen for first command. Should always be "Open <document> as
     <name>". Tag the connection with document and name. Put into the list of
     connections for that document, setting up the document if neded.
+*)
+
+(* Document setup
+    Open file for reading
+    Populate state:
+        text (contents, or empty if file doesn't exist)
+        empty list of connects
+    Add first connection
+*)
+(* Per Connection Setup
+    Tag the connection with the username.
+    Locate the document in the list of documents. If it doesn't exist, set up
+    the document.
+    Send+apply: "<user> connected and their cursor is at position 0" action
+*)
+(* Connection Action received:
+    Connect/Disconnect: See above/below
+    Save: Save the document
+    Else: Send+apply. Send the message to everyone connected, and apply it to
+          the server's state model.
+*)
+(* Per Connection Disconnect 
+    Send+apply: "<user> disconnected" action
+    If there are zero users connected, save the document and remove it from the
+    documents list.
 *)
 
 let open_unix_socket path =
@@ -824,28 +853,25 @@ let server_main (server_args: server_args) (on_ready: unit->unit) : unit =
     (* If the client exits, we should not exit *)
     Sys.set_signal Sys.sigpipe Sys.Signal_ignore; 
 
-    (* debug flag *)
+    (* Partially evaluate top-level stuff *)
     let process_actions = process_actions server_args.dir server_args.debug in
 
     (* Listen on a socket for client connections *)
     let socket = open_unix_socket server_args.socket in
-    on_ready ();
-
     let new_connections : connection Input.t =
         let process_connection (ic: In_channel.t) =
             let (client_fd, client_addr) = Unix.accept (Unix.descr_of_in_channel ic) in
-            Some {
+            {
                 inp=Input.of_file (Unix.in_channel_of_descr client_fd);
                 out=Output.of_file (Unix.out_channel_of_descr client_fd)
             } in
         Input.of_file ~reader:process_connection socket in
 
-    let all_users : user list ref = ref [] and
-        unauthed_connections : connection list ref = ref [] in
-        (*
-        documents : (string, document) Map.t = Map.empty in*)
+    on_ready ();
 
-    let documents = ref StringMap.empty in
+    let all_users : user list ref = ref [] and
+        unauthed_connections : connection list ref = ref [] and
+        documents = ref StringMap.empty in
 
     let get_document docname : document =
         documents := StringMap.update docname (function
@@ -863,12 +889,15 @@ let server_main (server_args: server_args) (on_ready: unit->unit) : unit =
         match actions with
         | OpenDocument (document_name, name) :: _ ->
             let document = get_document document_name in
-            let uid = List.length !(document.users) in
+            let uid = List.length !(document.state).per_user in
             let user = { conn; document; uid; name } in
             document.users := user :: !(document.users);
             Some user
         | _ -> None in
-        
+
+    let remove_conn conn = unauthed_connections := remove conn !unauthed_connections in (* TODO: Also close? *)
+    let add_user user = all_users := user :: !all_users in
+    let remove_user user = all_users := remove user !all_users in
 
     while true do
         Input.select (
@@ -877,53 +906,32 @@ let server_main (server_args: server_args) (on_ready: unit->unit) : unit =
             (List.map (fun user -> Input.handle user.conn.inp) !all_users)
         );
 
-        (if Input.is_ready new_connections then
-            let conn = Input.read_exn new_connections in
-            unauthed_connections := conn :: !unauthed_connections);
+        (match Input.read new_connections with
+            | Some conn -> unauthed_connections := conn :: !unauthed_connections
+            | NotReady -> ()
+            | Closed -> exit 0
+        );
 
-        !unauthed_connections |> List.iter (function {inp;out} as conn ->
-        if Input.is_ready inp then
-            let actions = Input.read_exn inp in
+        !unauthed_connections |> List.iter (function conn ->
+            match Input.read conn.inp with
+                | Some actions ->
+                    remove_conn conn;
+                    (match auth_user conn actions with
+                        | None -> ()
+                        | Some user ->
+                            add_user user;
+                            process_actions user actions)
+                | NotReady -> ()
+                | Closed -> remove_conn conn
+        );
 
-            match auth_user conn actions with
-            | None -> ()
-            | Some user ->
-
-            unauthed_connections := remove conn !unauthed_connections;
-            all_users := user :: !all_users;
-            process_actions user actions);
-
-        !all_users |> List.iter (function
-        |{conn={inp;out=_}; document=_; uid=_} as user ->
-        if Input.is_ready inp then
-            let actions = Input.read_exn inp in
-            process_actions user actions)
+        !all_users |> List.iter (function {conn={inp;out=_}; document=_; uid=_} as user ->
+            match Input.read inp with
+                | Some actions -> process_actions user actions
+                | NotReady -> ()
+                | Closed -> remove_user user
+        )
     done
-
-(* Document setup
-    Open file for reading
-    Populate state:
-        text (contents, or empty if file doesn't exist)
-        empty list of connects
-    Add first connection
-*)
-(* Per Connection Setup
-    Tag the connection with the username.
-    Locate the document in the list of documents. If it doesn't exist, set up
-    the document.
-    Send+apply: "<user> connected and their cursor is at position 0" action
-*)
-(* Connection Action received:
-    Connect/Disconnect: See above/below
-    Save: Save the document
-    Else: Send+apply. Send the message to everyone connected, and apply it to
-          the server's state model.
-*)
-(* Per Connection Disconnect 
-    Send+apply: "<user> disconnected" action
-    If there are zero users connected, save the document and remove it from the
-    documents list.
-*)
 
 type run_mode = Client | Server | StandAlone
 type cli_args = {

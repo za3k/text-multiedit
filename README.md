@@ -34,8 +34,8 @@ TEXTMU - The complete list
 	[x] Add message queues for each user
     [x] Assign user colors
 	[x] Add document setup messages when a user connects
-    [ ] Have a dictionary of documents -- look up or create one on demand
-	[ ] Add file load+save
+    [x] Have a dictionary of documents -- look up or create one on demand
+	[x] Add file load+save
 [x] Fix bug where the blank document doesn't show a cursor or the line number
 [x] If there is one user, their name should display only half-width at the bottom
 [ ] Terminal resizing

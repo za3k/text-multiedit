@@ -696,17 +696,24 @@ let open_unix_socket path =
 let path (dir: string) (docname: string) : string =
     dir ^ "/" ^ docname
 
+let has_trailing_newline : string -> bool = String.ends_with ~suffix:"\n"
+
 let load path : string option =
+    Printf.printf "Loading file: %s\n" path;
     match In_channel.open_bin path with
         | exception Sys_error _ -> None
         | c -> 
             let t = In_channel.input_all c in
-            (* TODO: Add a trailing newline if needed *)
             In_channel.close c; 
-            Some t
+            Option.some @@ if has_trailing_newline t then t else t ^ "\n"
 
 let save path contents : unit =
-    ()
+    Printf.printf "Saving file: %s\n" path;
+    match Out_channel.open_bin path with
+        | exception Sys_error _ -> ()
+        | c ->
+            Out_channel.output_string c contents;
+            Out_channel.close c
 
 let free_color (state: state) : background_color =
     let used_colors = List.map (fun u -> u.color) state.per_user in
@@ -716,7 +723,7 @@ let free_color (state: state) : background_color =
     | [] -> White (* 17th editor and beyond all get the same color *)
     | c :: _ -> c
 
-let process_actions debug (user: user) actions : unit =
+let process_actions dir debug (user: user) actions : unit =
     (* We got some actions from a user. Do the commands they send.
         This will involve:
         - Changing the document
@@ -748,22 +755,23 @@ let process_actions debug (user: user) actions : unit =
         | ReplaceText (a,b,c) ->
             enqueue_all @@ ReplaceText (user.uid,a,b,c)
         | Save -> 
-            (* TODO: Actually save the document *)
-            () 
+            let state = !(document.state) in
+            save (path dir state.document_name) state.text
         | OpenDocument (_, username) ->
             let state = !(document.state) in
 
             (* Load the document for the user that joined by sending fake events *)
             (* Have a fake user join, "create" the document, and leave *)
             enqueue_user @@ UserJoins { user="god"; cursor=0; color=Black };
-            enqueue_user @@ ReplaceText (0,0,0,String.sub state.text 0 ((String.length state.text)-1));
+            let text_minus_trailing_newline = String.sub state.text 0 ((String.length state.text)-1) in
+            enqueue_user @@ ReplaceText (0,0,0,text_minus_trailing_newline);
             enqueue_user @@ UserLeaves 0;
 
             (* Have all previous users "join".
                 The new user is not yet in document.state.per_user *)
             let user_joins u =
                 enqueue_user @@ UserJoins u in
-            List.map user_joins state.per_user;
+            List.iter user_joins state.per_user;
 
             (* Now announce the new user that just joined *)
             let color = free_color state in
@@ -771,20 +779,23 @@ let process_actions debug (user: user) actions : unit =
             enqueue_user @@ SetUser user.uid (* Our logic is such that this is the same as the computed value *) 
     in
 
-    (* Process each action *)
-    List.iter process_action actions;
-    enqueue_user Unlock;
-
     if debug then (
         print_newline ();
         print_string "user: ";
         print_endline @@ Debug.string_of_user user;
         print_string "actions: ";
-        print_endline @@ string_of_list Debug.string_of_remote_action @@ actions;
+        print_endline @@ string_of_list Debug.string_of_remote_action @@ actions
+        );
+
+    (* Process each action *)
+    List.iter process_action actions;
+    enqueue_user Unlock;
+
+    if debug then (
         print_string "q_user: ";
         print_endline @@ string_of_list Debug.string_of_receive_action @@ list_of_queue q_user;
         print_string "q_everyone: ";
-        print_endline @@ string_of_list Debug.string_of_receive_action @@ list_of_queue q_everyone;
+        print_endline @@ string_of_list Debug.string_of_receive_action @@ list_of_queue q_everyone
         );
 
     (* Update the server copy of the document *)
@@ -806,7 +817,7 @@ let server_main (server_args: server_args) (on_ready: unit->unit) : unit =
     Sys.set_signal Sys.sigpipe Sys.Signal_ignore; 
 
     (* debug flag *)
-    let process_actions = process_actions server_args.debug in
+    let process_actions = process_actions server_args.dir server_args.debug in
 
     (* Listen on a socket for client connections *)
     let socket = open_unix_socket server_args.socket in
@@ -826,9 +837,6 @@ let server_main (server_args: server_args) (on_ready: unit->unit) : unit =
         (*
         documents : (string, document) Map.t = Map.empty in*)
 
-    let load docname = load (path server_args.dir docname) in
-    let save docname = save (path server_args.dir docname) in
-
     let documents = ref StringMap.empty in
 
     let get_document docname : document =
@@ -837,7 +845,7 @@ let server_main (server_args: server_args) (on_ready: unit->unit) : unit =
             | None -> 
                 if docname = "TESTING" then Some { state=ref testing_document; users=ref [] }
                 else
-                    let text = Option.value (load docname) ~default:"\n" in
+                    let text = Option.value (load (path server_args.dir docname)) ~default:"\n" in
                     let state = { text; per_user=[]; document_name=docname } in
                     Some { state=ref state; users=ref [] }
         ) !documents;

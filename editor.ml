@@ -81,6 +81,9 @@ let string_of_list = Debug.string_of_list
 let truncate len s =
     if String.length s <= len then s
     else String.sub s 0 (len-1)
+let has_trailing_newline : string -> bool = String.ends_with ~suffix:"\n"
+let remove_trailing_newline s = 
+    String.sub s 0 ((String.length s)-1)
 
 let get_cursor (state: state) (local_state: local_state) : int option =
     let user = match local_state.uid with
@@ -189,8 +192,8 @@ let cut append_move clipboard text pos line_start line_end =
 This is logic to deal with it. *)
 
 let viewport_height (terminal: terminal_size) : int = terminal.rows - 5 (* 1 row for title, 2 rows for help, 1 for status bar, 1 for error line *)
-let status_width (terminal: terminal_size) : int = (min max_rows terminal.cols)
-let avail_cols   (terminal: terminal_size) : int = (status_width terminal) - 5 (* room for line number display *)
+let status_width (terminal: terminal_size) : int = terminal.cols
+let avail_cols   (terminal: terminal_size) : int = (min max_rows terminal.cols) - 5 (* room for line number display *)
 
 let viewport state local_state =
     let width = (avail_cols local_state.terminal_size)
@@ -236,7 +239,7 @@ let shift_sline_action (state: state) (local_state: local_state)
     let (shifted_slines, _) = Text.sline_difference width state.text pos new_pos in
     (shifted_slines, new_pos, f (new_pos-pos))
 
-let shift_only_view s ls slines : int * int * send_action list =
+let shift_only_view s ls slines : int * int * send_action list = (* Used in: terminal resize events *)
     shift_sline_action s ls slines ls.view move_view
 
 let shift_only_cursor s ls slines : int * int * send_action list =
@@ -368,12 +371,42 @@ let apply_remote_action (state: state) : receive_action -> (state * (local_state
             { local_state with locked = false } in
         (state, rest)
 
-let resize_terminal (state: state) (local_state: local_state ref) : unit = 
-    (*
-    (* TODO: Get new terminal size *)
-    local_state := { !local_state with terminal_size = get_terminal_size () }
-    *)
-    local_state := apply_local_action state !local_state (DisplayError (Some "Terminal size changed"))
+let tee s = failwith s
+let get_terminal_size () : terminal_size =
+    let command x =
+        let p = Unix.open_process_in x in
+        let r = In_channel.input_all p in
+        In_channel.close p; r in
+    match command "stty size" |> remove_trailing_newline |> String.split_on_char ' ' |> List.map int_of_string with
+        | [rows; cols] -> {rows;cols}
+        | _ -> failwith "Invalid terminal size"
+
+let resize_terminal (state: state) (local_state: local_state) : local_state = 
+    let old_size = local_state.terminal_size and
+        new_size = get_terminal_size () in
+    let local_state = { local_state with terminal_size = get_terminal_size () } in
+
+    (* Clear the screen so there's no garbage left after 80 cols on the edges. Note, this could be removed if we re-wrote display logic to write the full line. *)
+    (* TODO: Don't do this in debug mode -- by just printing the full width always*)
+    print_string "\027[2J"; 
+
+    (* Set the new size *)
+    let local_state = apply_local_action state local_state (DisplayError (Some "Terminal size changed")) in
+    
+    let local_actions = (match get_cursor state local_state with
+        | None -> []
+        | Some cursor ->
+            (match cursor_in_viewport state.text new_size local_state.view cursor with
+                | OnScreen -> []
+                | OffTop _ -> failwith "The cursor somehow went off the top of the screen during terminal resize. This should never happen."
+                | OffBottom amt -> 
+                    let only_local actions = fst @@ split_send actions in
+                    let (_, _, actions) = shift_only_view state local_state amt in
+                    only_local actions
+            )
+    ) in
+
+    List.fold_left (apply_local_action state) local_state local_actions
 
 (* Step 8: Update the UI
     8a: Calculate the view, based on the last view, the current terminal size,
@@ -567,7 +600,8 @@ let display (state: state) (local_state: local_state) : unit =
         text_width = avail_cols local_state.terminal_size and
         status_width = status_width local_state.terminal_size and
         height = viewport_height local_state.terminal_size in
-    let document_lines = display_viewport text_width state.text color viewport false in
+    let document_lines = display_viewport text_width state.text color viewport false 
+        |> List.map (fun x -> x ^ String.make (status_width - text_width) ' ') in
     let lines = 
           title_line status_width state.document_name
         @ document_lines
@@ -612,7 +646,7 @@ let client_main (client_args: client_args) : unit =
         at_exit reset_stdin;
 
     (* Setup of the client state *)
-    let local_state = ref init_local_state in (* TODO: Check the initial terminal size *)
+    let local_state = ref {init_local_state with terminal_size = get_terminal_size ()} in
     let state = ref @@ empty_document client_args.file in
 
     (* Debug mode prints extra info and doesn't clear the screen *)
@@ -659,8 +693,7 @@ let client_main (client_args: client_args) : unit =
         match Input.read terminal_resizes with
             | Some () ->
                     ps "Event: TERM RESIZE\n";
-                resize_terminal !state local_state
-                (* TODO: Shift view and/or cursor if the cursor is no longer inside the view? *)
+                local_state := resize_terminal !state !local_state
             | Closed -> failwith "terminal_resizes closed (this should never happen)"
             | NotReady ->
         match Input.read key_presses with
@@ -714,10 +747,8 @@ let client_main (client_args: client_args) : unit =
 let path (dir: string) (docname: string) : string =
     dir ^ "/" ^ docname
 
-let has_trailing_newline : string -> bool = String.ends_with ~suffix:"\n"
-
 let load path : string option =
-    Printf.printf "Loading file: %s\n" path;
+    (*Printf.printf "Loading file: %s\n" path;*)
     match In_channel.open_bin path with
         | exception Sys_error _ -> None
         | c -> 
@@ -726,7 +757,7 @@ let load path : string option =
             Option.some @@ if has_trailing_newline t then t else t ^ "\n"
 
 let save path contents : unit =
-    Printf.printf "Saving file: %s\n" path;
+    (*Printf.printf "Saving file: %s\n" path;*)
     match Out_channel.open_bin path with
         | exception Sys_error _ -> ()
         | c ->
@@ -782,8 +813,7 @@ let process_actions dir debug (user: user) actions : unit =
             (* Load the document for the user that joined by sending fake events *)
             (* Have a fake user join, "create" the document, and leave *)
             enqueue_user @@ UserJoins { user="god"; cursor=0; color=Black };
-            let text_minus_trailing_newline = String.sub state.text 0 ((String.length state.text)-1) in
-            enqueue_user @@ ReplaceText (0,0,0,text_minus_trailing_newline);
+            enqueue_user @@ ReplaceText (0,0,0,remove_trailing_newline state.text);
             enqueue_user @@ UserLeaves 0;
 
             (* Have all previous users "join".

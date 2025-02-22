@@ -43,11 +43,12 @@ TEXTMU - The complete list
 [x] Refactor: Improve Input/Output
     - Add a map function
     - Move unix listening sockets into the class
-[ ] Terminal resizing
+[x] Terminal resizing
     [x] Listen for terminal resize
-    [ ] Detect the terminal size -- requires C, punt this (see: https://github.com/cryptosense/terminal_size/blob/master/src/terminal_size_stubs.c)
-    [ ] Change the terminal size
-    [ ] On terminal resize, the cursor can exit the view. Decide what to do in this case.
+    [x] On terminal resize, the cursor can exit the view. Decide what to do in this case.
+    [x] Detect the terminal size
+    [x] Change the terminal size
+    [x] If the cursor exits the view on terminal size, scroll the view to include it
 [ ] Refactor: Add a "colored string" type to simplify display + padding logic
 [ ] Refactor pos/line/sline logic
 	- Move pos/line/sline logic into a separate module.
@@ -103,6 +104,11 @@ TEXTMU - The complete list
 	[ ] Up/down should remember the "imaginary" column off the right end the cursor is on until the user types or presses left/right
     [ ] Cut goes before the cursor--if this is off the top of the screen, should the screen scroll? check nano behavior
     [x] Truncate very long display names
+    [ ] If the server fails to save, it should report an error that the client can display
+    [ ] The server should auto-save the document when the last client leaves (and possibly more often)
+    [ ] Flicker while resizing terminal -- get rid of clearscreen, and instead draw the full width of every line inside viewport
+        (requires ColorString to do easily)
+[ ] Refactor: Detect the terminal size using ioctl instead of exec. Requires C, punt this (see: https://github.com/cryptosense/terminal_size/blob/master/src/terminal_size_stubs.c)
 [ ] Scan the code and fix every place an exception can possibly be throwing, removing them one at a time
 [ ] Upload the finished binary to tilde as /bin/text
 [ ] Test multi-user editing

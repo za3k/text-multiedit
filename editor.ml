@@ -144,7 +144,7 @@ let get_button keystroke =
     else match lookup_shortcut keystroke shortcuts with
         | Some action -> action
         | None -> Unknown keystroke
-    
+
 
 (* Step 3: Compute the parameterized action (ex, move cursor from where to where) *)
 let split_send (actions: send_action list) : (send_local_action list * send_remote_action list) =
@@ -288,8 +288,6 @@ let compute_actions (state: state) (local_state: local_state) button =
 (* Step 4: Apply local state changes *)
 
 let apply_local_action (state: state) (local_state: local_state): send_local_action -> local_state = function
-    (*print_endline (Printf.sprintf "ApplyingLocal: %s" (Debug.string_of_send_action
-    action));*)
     | CopyText s -> { local_state with clipboard = s }
     | CutFlag b -> { local_state with move_since_cut = not b }
     | DisplayError s -> { local_state with error = s }
@@ -309,7 +307,6 @@ let apply_local_action (state: state) (local_state: local_state): send_local_act
 *)
 
 let apply_remote_action (state: state) : receive_action -> (state * (local_state -> local_state)) = 
-    (*print_endline (Printf.sprintf "ApplyingRemote: %s" (Debug.string_of_receive_action action));*)
     function
     | ReplaceText (ed_uid, start, length, replacement) ->
         (* 
@@ -326,7 +323,11 @@ let apply_remote_action (state: state) : receive_action -> (state * (local_state
         let net_change = (String.length replacement) - length in
         let new_text = (String.sub state.text 0 pos) ^ replacement ^ (String.sub state.text (pos + length) (text_length - pos - length)) in
         (*             state.text[0:pos]             + replacement + state.text[pos+length:] *)
-        let shift p = if p <= pos then p else p + net_change in
+        let shift p = 
+            (* If cursor is in affected region, move to the start of the replacement/deletion *)
+            if p >= pos && p < pos + length then pos
+            (* Otherwise shift cursor if needed *)
+            else if p < pos then p else p + net_change in 
         let new_users = List.mapi (fun (uid: int) (user: user_state) ->
             if uid = ed_uid then { user with cursor = pos + (String.length replacement) }
             else { user with cursor = shift user.cursor }
@@ -646,29 +647,21 @@ let client_main (client_args: client_args) : unit =
             if (!local_state).locked then [] else [Input.handle key_presses]
         ));
 
-        if Input.is_ready server_received then
-            (
-                ps "SERVER MSG\n";
+        if Input.is_ready server_received then (
             let msgs = Input.read_exn server_received in
-                (ps @@ Printf.sprintf "  ->%s" @@ Debug.string_of_list Debug.string_of_receive_action msgs);
-            (* TODO: Print messages from the server now that they're nontrivial *)
-
+                ps @@ Printf.sprintf "Event: SERVER MSG %s\n" @@ Debug.string_of_list Debug.string_of_receive_action msgs;
             let apply1 msg =
                 let (s, rest) = apply_remote_action !state msg in
                 state := s;
                 local_state := rest !local_state in
             List.iter apply1 msgs
-            )
-        else if Input.is_ready terminal_resizes then 
-            (
-                ps "TERM RESIZE\n";
+        ) else if Input.is_ready terminal_resizes then (
+                ps "Event: TERM RESIZE\n";
             let () = Input.read_exn terminal_resizes in
             resize_terminal !state local_state
             (* TODO: Shift view and/or cursor if the cursor is no longer inside the view? *)
-            )
-        else if Input.is_ready key_presses then
-            (
-                ps "KEYPRESS\n";
+        ) else if Input.is_ready key_presses then (
+                ps "Event: KEYPRESS ";
             let keystroke = Input.read_exn key_presses in
                 ps (Printf.sprintf "\"%s\" || " (String.escaped keystroke));
             let button = get_button keystroke in
@@ -679,7 +672,7 @@ let client_main (client_args: client_args) : unit =
             local_state := List.fold_left (apply_local_action !state) !local_state local;
             if not @@ List.is_empty remote then 
                 Output.send server_sent remote
-            )
+        )
     done
 
 (* SERVER LOGIC *)

@@ -95,6 +95,7 @@ TEXTMU - The complete list
 	  													Do we need to represent "after the end of the document" or 
 [ ] Fix all known bugs
 	[ ] Up/down should remember the "imaginary" column off the right end the cursor is on until the user types or presses left/right
+    [ ] Cut goes before the cursor--if this is off the top of the screen, should the screen scroll? check nano behavior
 [ ] Scan the code and fix every place an exception can possibly be throwing, removing them one at a time
 [ ] Upload the finished binary to tilde as /bin/text
 [ ] Test multi-user editing

@@ -29,8 +29,8 @@ let has_remote actions =
     split_send actions |> snd |> (<>) []
 let has_error actions = 
     let is_error = function
-    | Local (DisplayError (Some _)) -> true
-    | _ -> false in
+        | Local (DisplayError (Some _)) -> true
+        | _ -> false in
     List.exists is_error actions
     
 let exit_action = [Local Exit]

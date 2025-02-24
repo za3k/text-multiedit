@@ -1,8 +1,11 @@
-open Types
+open OUnit2
+
+open Color
 open Debug
+open Display
 open Editor
 open Text
-open OUnit2
+open Types
 
 let all_tests = ref []
 let add_test (test: test) : unit = all_tests := test :: !all_tests

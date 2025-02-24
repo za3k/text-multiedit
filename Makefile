@@ -1,4 +1,4 @@
-LIBS=utils.ml output.ml input.ml types.ml debug.ml text.ml args.ml editor.ml
+LIBS=utils.ml color.ml output.ml input.ml types.ml constants.ml debug.ml text.ml args.ml display.ml editor.ml
 
 run: editor
 	./$< --stand-alone TESTING.txt

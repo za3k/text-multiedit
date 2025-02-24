@@ -778,7 +778,6 @@ let process_actions dir debug (user: user) actions : unit =
         - Changing the document
         - Possibly changing the filesystem (save commmand)
         - Sending back responses to all users on that document right now
-        TODO: Deal with user disconnections, too.
     *)
     let document = user.document and
         users = !(user.document.users) and
@@ -789,7 +788,7 @@ let process_actions dir debug (user: user) actions : unit =
             if not @@ Queue.is_empty q then
             if debug then (
                 print_endline @@ Printf.sprintf "%s (%d): %s"
-                    (colorize Green u.name) u.uid
+                    (colorize Green u.name) !(u.uid)
                     (Debug.string_of_list Debug.string_of_receive_action (list_of_queue q))
             );
             Output.send u.conn.out (list_of_queue q) and
@@ -802,7 +801,7 @@ let process_actions dir debug (user: user) actions : unit =
     
     let process_action : send_remote_action -> unit = function
         | ReplaceText (a,b,c) ->
-            enqueue_all @@ ReplaceText (user.uid,a,b,c)
+            enqueue_all @@ ReplaceText (!(user.uid),a,b,c)
         | Save -> 
             let state = !(document.state) in
             if state.document_name = test_doc_name then () else
@@ -825,9 +824,9 @@ let process_actions dir debug (user: user) actions : unit =
             (* Now announce the new user that just joined *)
             let color = free_color state in
             enqueue_all @@ UserJoins { user=username; cursor=0; color=color };
-            enqueue_user @@ SetUser user.uid (* Our logic is such that this is the same as the computed value *) 
+            enqueue_user @@ SetUser !(user.uid) (* Our logic is such that this is the same as the computed value *) 
         | Disconnect ->
-            enqueue_all @@ UserLeaves user.uid
+            enqueue_all @@ UserLeaves !(user.uid)
     in
 
     if debug then (
@@ -897,7 +896,7 @@ let server_main (server_args: server_args) (on_ready: unit->unit) : unit =
         match actions with
         | OpenDocument (document_name, name) :: _ ->
             let document = get_document document_name in
-            let uid = List.length !(document.state).per_user in
+            let uid = ref @@ List.length !(document.state).per_user in
             let user = { conn; document; uid; name } in
             document.users := user :: !(document.users);
             Some user
@@ -907,7 +906,11 @@ let server_main (server_args: server_args) (on_ready: unit->unit) : unit =
     let add_user user = all_users := user :: !all_users in
     let remove_user user = 
         all_users := remove user !all_users;
-        user.document.users := remove user !(user.document.users) in
+        user.document.users := remove user !(user.document.users);
+        let adjust_uid u = (* Shift server uids *)
+            if !(u.uid) > !(user.uid) then
+                u.uid := !(u.uid) - 1 in
+        List.iter adjust_uid !(user.document.users) in
 
     while true do
         Input.select (
@@ -955,7 +958,7 @@ type cli_args = {
 let parse_args () : cli_args =
     let usage_msg = "text [--debug] [--dir DIR] [--stand-alone|--server|--client] FILE" and
         debug = ref false and
-        mode = ref StandAlone and
+        mode = ref Client and
         dir = ref None and
         user = ref None and
         files = ref [] in

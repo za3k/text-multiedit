@@ -49,7 +49,7 @@ and user = {
     conn: connection;
     document: document;
     name: string;
-    uid: int;
+    uid: int ref;
 }
 and document = {
     state: state ref;

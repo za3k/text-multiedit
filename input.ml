@@ -99,6 +99,7 @@ let of_listening_socket ?reader ?writer (path: string) : (('a t) * ('b Output.t)
         let addr = Unix.ADDR_UNIX path in
         Unix.bind fd addr;
         Unix.listen fd 10;
+        Unix.chmod path 0o666; (* Should be accessible to all users please -- not sure why but fchmod fails *)
         Unix.in_channel_of_descr fd in
 
     let process_connection (ic: In_channel.t) =

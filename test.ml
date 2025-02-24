@@ -1,9 +1,9 @@
 open OUnit2
 
 open Color
+open Common
 open Debug
 open Display
-open Editor
 open Text
 open Types
 

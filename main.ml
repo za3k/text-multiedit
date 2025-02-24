@@ -1,4 +1,13 @@
-open Editor
+(*  textmu, a multi-user text editor
+
+    Designed to support multiple users ssh-ed into one machine, editing a
+    set of documents at the same time.
+    
+    Limitations:
+        ASCII only, no Unicode
+        Explicit save required
+        Undo/redo not supported
+*)
 
 let cvar () : (unit -> unit) * (unit -> unit) =
     let flag = Atomic.make false and
@@ -37,15 +46,15 @@ let main () : unit =
 
     let args = Args.parse_args () in
     match args.mode with
-    | Client -> fail_catastrophically client_main args.client_args
-    | Server -> fail_catastrophically (server_main args.server_args) ignore
+    | Client -> fail_catastrophically Client.client_main args.client_args
+    | Server -> fail_catastrophically (Server.server_main args.server_args) ignore
     | StandAlone ->
         let (set_ready, wait_until_ready) = cvar () in
         let server = Domain.spawn
-            (fun () -> fail_catastrophically (server_main args.server_args) set_ready)
+            (fun () -> fail_catastrophically (Server.server_main args.server_args) set_ready)
         in
         wait_until_ready ();
-        fail_catastrophically client_main args.client_args;
+        fail_catastrophically Client.client_main args.client_args;
         Domain.join server
 
 let () = main ()

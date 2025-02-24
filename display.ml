@@ -2,6 +2,15 @@ open Types
 open Color
 open Utils
 open Constants
+open Common
+
+(* Step 8: Update the UI
+    8a: Calculate the view, based on the last view, the current terminal size,
+        and the cursor position.
+    8b: Display the text (or the help)
+    8c: Display the active users
+    8d: Display the shortcuts
+*)
 
 let rec lookup_cursor_color (users: user_state list) (pos: int) : background_color option = 
     (* { user="zachary"; cursor=2; color=Red;  }; *)
@@ -155,3 +164,35 @@ let print_lines lines = (* Print 25x 80-column lines *)
         print_string (Printf.sprintf "\027[%d;0H%s" (i+1) line) in
     List.iteri print_line lines; flush stdout
 
+let display_debug (state: state) (local_state: local_state) : unit =
+    let viewport = viewport state local_state and
+        visible = in_viewport (viewport state local_state) and
+        text_width = (avail_cols local_state.terminal_size) in
+    let color p = any [
+        lookup_cursor_color state.per_user p;
+        if visible p then Some Blue else None
+    ] in
+
+    let lines = [""] @ display_document text_width state.text color true
+    @ [debug_cursors state ^ debug_view viewport state local_state]
+    @ display_help text_width in
+
+    print_string (String.concat "\n" lines); flush stdout
+
+let display (state: state) (local_state: local_state) : unit =
+    let viewport = viewport state local_state and
+        color = lookup_cursor_color state.per_user and
+        text_width = avail_cols local_state.terminal_size and
+        status_width = status_width local_state.terminal_size and
+        height = viewport_height local_state.terminal_size in
+    let document_lines = display_viewport text_width state.text color viewport false 
+        |> List.map (fun x -> x ^ String.make (status_width - text_width) ' ') in
+    let lines = 
+          title_line status_width state.document_name
+        @ document_lines
+        @ spacer_lines status_width (max (height - (List.length document_lines)) 0)
+        @ error_line status_width local_state.error
+        @ status_line status_width state local_state
+        @ display_help status_width in
+
+    print_lines lines

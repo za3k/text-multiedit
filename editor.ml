@@ -20,6 +20,7 @@
 *)
 
 open Types
+open Utils
 
 let version = "0.0.1"
 let max_rows = 80
@@ -32,22 +33,6 @@ let empty_document document_name = {
     per_user = []
 }
 
-let test_doc_name = "TESTING.txt"
-let testing_document = {
-    text="  RAINBOWrainbowRAINBOW\nThis is the second line.\nThis is the third line.\nThis is the fourth line\nThis is the fifth line\n"; 
-    document_name=test_doc_name;
-    per_user = 
-        []
-    (*
-        { user="zachary"; cursor=0; color=Red;  }
-        ::(List.mapi (fun i c -> { 
-            user=Printf.sprintf "editor%d" (i+1);
-            cursor=2+i;
-            color=c
-        }) (List.tl editor_colors));
-        *)
-}
-
 let init_local_state = {
     uid = None;
     view = 0;
@@ -58,33 +43,6 @@ let init_local_state = {
     error = None;
 }
 
-let remove_index (i: int) : 'a list -> 'a list = List.filteri (fun j x -> j <> i)
-let remove (x: 'a) (l: 'a list) = List.filter ((!=) x) l
-let compose f g x = f (g x) (* Support OCaml 4.14.1 *)
-let copies num x = List.init num (fun _ -> x)
-let sum = List.fold_left (+) 0
-let rec any : 'a option list -> 'a option = function
-    | [] -> None
-    | Some x :: _ -> Some x
-    | None :: l -> any l
-let option_or a b = any [a; b]
-let rec except_last : 'a list -> 'a list = function
-    | [] -> []
-    | a :: [] -> []
-    | h :: l -> h :: except_last l
-let rec suffixes = function (* In order from biggest to smallest *)
-    | [] -> []
-    | _ :: l as all -> all :: (suffixes l)
-let prefixes l = (* In order from biggest to smallest *)
-    l |> List.rev |> suffixes |> List.map List.rev
-let string_of_list = Debug.string_of_list
-let truncate len s =
-    if String.length s <= len then s
-    else String.sub s 0 (len-1)
-let has_trailing_newline : string -> bool = String.ends_with ~suffix:"\n"
-let remove_trailing_newline s = 
-    String.sub s 0 ((String.length s)-1)
-
 let get_cursor (state: state) (local_state: local_state) : int option =
     let user = match local_state.uid with
         | None -> None
@@ -92,8 +50,6 @@ let get_cursor (state: state) (local_state: local_state) : int option =
     Option.map (fun user -> user.cursor) user
 let get_cursor_unsafe state local_state : int = 
     get_cursor state local_state |> Option.get
-
-let sigwinch = 28 (* Source: https://github.com/torvalds/linux/blob/master/include/uapi/asm-generic/signal.h *)
 
 (* Step 1: Read a keystroke *)
 let get_keystroke char_reader =
@@ -621,13 +577,7 @@ let display (state: state) (local_state: local_state) : unit =
     Send "Disconnect" to the server.
 *)
 
-type client_args = {
-    debug: bool;
-    file: string;
-    user: string;
-    socket: string;
-}
-let client_main (client_args: client_args) : unit =
+let client_main (client_args: Args.client_args) : unit =
     (* Terminal stuff for start/exit *)
     (* Restore the terminal, show the cursor *)
     let reset () : unit = print_string "\027[?1049l\027[?25h" in at_exit reset;
@@ -804,7 +754,6 @@ let process_actions dir debug (user: user) actions : unit =
             enqueue_all @@ ReplaceText (!(user.uid),a,b,c)
         | Save -> 
             let state = !(document.state) in
-            if state.document_name = test_doc_name then () else
             save (path dir state.document_name) state.text
         | OpenDocument (_, username) ->
             let state = !(document.state) in
@@ -856,13 +805,8 @@ let process_actions dir debug (user: user) actions : unit =
     flush_all ()
 
 module StringMap = Map.Make(String)
-type server_args = {
-    dir: string;
-    socket: string;
-    debug: bool;
-}
 
-let server_main (server_args: server_args) (on_ready: unit->unit) : unit =
+let server_main (server_args: Args.server_args) (on_ready: unit->unit) : unit =
     (* If the client exits, we should not exit *)
     Sys.set_signal Sys.sigpipe Sys.Signal_ignore; 
 
@@ -884,11 +828,9 @@ let server_main (server_args: server_args) (on_ready: unit->unit) : unit =
         documents := StringMap.update docname (function
             | Some x -> Some x
             | None -> 
-                if docname = test_doc_name then Some { state=ref testing_document; users=ref [] }
-                else
-                    let text = Option.value (load (path server_args.dir docname)) ~default:"\n" in
-                    let state = { text; per_user=[]; document_name=docname } in
-                    Some { state=ref state; users=ref [] }
+                let text = Option.value (load (path server_args.dir docname)) ~default:"\n" in
+                let state = { text; per_user=[]; document_name=docname } in
+                Some { state=ref state; users=ref [] }
         ) !documents;
         StringMap.find docname !documents in
 
@@ -947,97 +889,3 @@ let server_main (server_args: server_args) (on_ready: unit->unit) : unit =
                     remove_user user
         )
     done
-
-type run_mode = Client | Server | StandAlone
-type cli_args = {
-    mode: run_mode;
-    client_args: client_args;
-    server_args: server_args;
-}
-    
-let parse_args () : cli_args =
-    let usage_msg = "text [--debug] [--dir DIR] [--stand-alone|--server|--client] FILE" and
-        debug = ref false and
-        mode = ref Client and
-        dir = ref None and
-        user = ref None and
-        files = ref [] in
-    let anon_fun filename = files := filename :: !files and
-        set_mode m = (Arg.Unit (fun () -> mode := m)) and
-        set_option_string r = (Arg.String (fun s -> r := Some s)) in
-    let speclist = [
-        ("--debug", Arg.Set debug, "Make the screen small (6x4) and turn off screen refresh");
-        ("--stand-alone", set_mode StandAlone, "Run a stand-alone server to edit files with just one user (meant for testing only)");
-        ("--client", set_mode Client, "Connect to an existing server (the default)");
-        ("--server", set_mode Server, "Run a server to edit files. Files will be owned by the server uid.");
-        ("--name", set_option_string user, "Your display. [default: username]");
-        ("--dir", set_option_string dir, "Set the server working directory, where text files will be located.");
-        ("--", Arg.Rest anon_fun, "Stop parsing arguments");
-    ] in
-    Arg.parse speclist anon_fun usage_msg;
-    let get_dir mode dir = 
-        let default = match mode with
-        | Client -> None
-        | Server -> Some "/var/text"
-        | StandAlone -> Some (Sys.getcwd ())
-        in option_or dir default in
-    let user = Option.value (!user) ~default:(Unix.getuid () |> Unix.getpwuid).pw_name |> truncate 12 in 
-    let socket = if !mode = StandAlone then "textmu.socket" else "/tmp/textmu.socket" in
-    let dir = get_dir !mode !dir in
-    let only_file = match (List.length !files) with
-        | 0 -> test_doc_name
-        | 1 -> List.hd !files
-        | _ -> Arg.usage speclist usage_msg; exit 3 in
-    { 
-        mode = !mode; 
-        client_args = { file = only_file; debug = !debug; user; socket };
-        server_args = { dir = Option.value dir ~default: ""; socket; debug=(Server = !mode) }
-    }
-
-let cvar () : (unit -> unit) * (unit -> unit) =
-    let flag = Atomic.make false and
-        cv = Condition.create () and
-        m = Mutex.create () in
-    Mutex.lock m;
-
-    let set_ready () =
-            Atomic.set flag true;
-            Condition.broadcast cv and
-        wait_until_ready () =
-            while not @@ Atomic.get flag do
-                Condition.wait cv m
-            done
-    in (set_ready, wait_until_ready)
-        
-let crash = Atomic.make None
-let enable_error_reporting () =
-    at_exit (fun () -> 
-        Out_channel.flush stdout;
-        match Atomic.get crash with 
-        | Some msg -> Out_channel.output_string stderr msg
-        | _ -> () 
-    )
-let fail_catastrophically (f: 'a -> 'b) (x: 'a) : 'b =
-    Printexc.record_backtrace true; (* Fun fact: this is a per-domain setting *)
-    try f x with
-        | e ->
-            Atomic.set crash (Printf.sprintf "%s\n%s\n"
-                (Printexc.to_string e)
-                (Printexc.get_backtrace ()) |> Option.some);
-            exit 2
-
-let main () : unit =
-    enable_error_reporting ();
-
-    let args = parse_args () in
-    match args.mode with
-    | Client -> fail_catastrophically client_main args.client_args
-    | Server -> fail_catastrophically (server_main args.server_args) ignore
-    | StandAlone ->
-        let (set_ready, wait_until_ready) = cvar () in
-        let server = Domain.spawn
-            (fun () -> fail_catastrophically (server_main args.server_args) set_ready)
-        in
-        wait_until_ready ();
-        fail_catastrophically client_main args.client_args;
-        Domain.join server

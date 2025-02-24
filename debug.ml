@@ -58,5 +58,4 @@ let string_of_user = function
     | { conn; document; uid; name } ->
         Printf.sprintf "User[uid=%d; name=%s; doc=%s]" !uid name !(document.state).document_name
 
-let string_of_list f l =
-    String.concat " " (List.map f l) |> Printf.sprintf "[%s]"
+let string_of_list = Utils.string_of_list

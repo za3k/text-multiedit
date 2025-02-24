@@ -1,7 +1,7 @@
-LIBS=output.ml input.ml types.ml debug.ml text.ml editor.ml
+LIBS=utils.ml output.ml input.ml types.ml debug.ml text.ml args.ml editor.ml
 
 run: editor
-	./$<
+	./$< --stand-alone TESTING.txt
 test: test.exe
 	./$<; rm *.log *.cache
 clean:

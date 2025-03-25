@@ -57,6 +57,10 @@ let save path contents : unit =
             Out_channel.output_string c contents;
             Out_channel.close c
 
+let save_document dir doc : unit =
+    let state = !(doc.state) in
+    save (path dir state.document_name) state.text
+
 let free_color (state: state) : background_color =
     let used_colors = List.map (fun u -> u.color) state.per_user in
     let is_free_color c = not @@ List.mem c used_colors in
@@ -96,8 +100,8 @@ let process_actions dir debug (user: user) actions : unit =
         | ReplaceText (a,b,c) ->
             enqueue_all @@ ReplaceText (!(user.uid),a,b,c)
         | Save -> 
-            let state = !(document.state) in
-            save (path dir state.document_name) state.text
+            save_document dir document;
+            enqueue_all @@ DisplayMessage "Saved."
         | OpenDocument (_, username) ->
             let state = !(document.state) in
 
@@ -155,6 +159,7 @@ let server_main (server_args: Args.server_args) (on_ready: unit->unit) : unit =
 
     (* Partially evaluate top-level stuff *)
     let process_actions = process_actions server_args.dir server_args.debug in
+    let save_document = save_document server_args.dir in
 
     (* Listen on a socket for client connections *)
     let new_connections : connection Input.t =
@@ -167,6 +172,8 @@ let server_main (server_args: Args.server_args) (on_ready: unit->unit) : unit =
         unauthed_connections : connection list ref = ref [] and
         documents = ref StringMap.empty in
 
+    let remove_document (doc: document) =
+        documents := StringMap.remove !(doc.state).document_name !documents in
     let get_document docname : document =
         documents := StringMap.update docname (function
             | Some x -> Some x
@@ -195,7 +202,12 @@ let server_main (server_args: Args.server_args) (on_ready: unit->unit) : unit =
         let adjust_uid u = (* Shift server uids *)
             if !(u.uid) > !(user.uid) then
                 u.uid := !(u.uid) - 1 in
-        List.iter adjust_uid !(user.document.users) in
+        List.iter adjust_uid !(user.document.users);
+        if 0 == List.length !(user.document.users) then
+            (* If the last user left, save the document and remove it from the list of documents *)
+            save_document user.document;
+            remove_document user.document
+        in
 
     while true do
         Input.select (

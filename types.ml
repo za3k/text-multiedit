@@ -36,6 +36,7 @@ type receive_action =
     | UserLeaves of int (* uid *)
     | UserJoins of user_state (* uid is implicit *)
     | SetUser of int (* uid *)
+    | DisplayMessage of string
     | Unlock
 
 (* These don't really need to be in types.ml except we want debug printing for 'user' *)

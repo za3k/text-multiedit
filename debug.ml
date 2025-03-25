@@ -53,6 +53,7 @@ let string_of_receive_action = function
     | UserJoins { user } -> Printf.sprintf "UserJoins[un=%s,...]" user
     | SetUser uid -> Printf.sprintf "SetUser[u=%d]" uid
     | Unlock -> "Unlock[]"
+    | DisplayMessage s -> Printf.sprintf "DisplayMessage[\"%s\"]" (String.escaped s)
 
 let string_of_user = function
     | { conn; document; uid; name } ->

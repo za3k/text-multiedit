@@ -102,6 +102,10 @@ let adjust_cursor_to_be_visible (text: string) (terminal: terminal_size) (view: 
 
 let apply_remote_action (state: state) : receive_action -> (state * (local_state -> local_state)) = 
     function
+    | DisplayMessage (message) ->
+        let rest local_state =
+            { local_state with error = Some message } in
+        (state, rest)
     | ReplaceText (ed_uid, start, length, replacement) ->
         (* 
             1. Change the text

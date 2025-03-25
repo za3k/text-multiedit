@@ -22,7 +22,7 @@ type cli_args = {
 }
 
 let parse_args () : cli_args =
-    let usage_msg = "text [--debug] [--dir DIR] [--stand-alone|--server|--client] FILE" and
+    let usage_msg = "text [--debug] [--dir DIR] [--stand-alone|--server|--client] [FILE]" and
         debug = ref false and
         mode = ref Client and
         dir = ref None and
@@ -50,8 +50,10 @@ let parse_args () : cli_args =
     let user = Option.value (!user) ~default:(Unix.getuid () |> Unix.getpwuid).pw_name |> truncate 12 in 
     let socket = if !mode = StandAlone then "textmu.socket" else "/tmp/textmu.socket" in
     let dir = get_dir !mode !dir in
-    let only_file = match (List.length !files) with
-        | 1 -> List.hd !files
+    let only_file = match (!mode, List.length !files) with
+        | (Server, 0) -> ""
+        | (Client, 1)
+        | (StandAlone, 1) -> List.hd !files
         | _ -> Arg.usage speclist usage_msg; exit 3 in
     { 
         mode = !mode; 

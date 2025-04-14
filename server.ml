@@ -76,6 +76,14 @@ let process_actions dir debug (user: user) actions : unit =
         - Possibly changing the filesystem (save commmand)
         - Sending back responses to all users on that document right now
     *)
+
+    let interesting1 : send_remote_action -> bool = function
+        | ReplaceText _ -> false
+        | _ -> true
+    in
+    let interesting : bool = List.fold_left (||) false @@ List.map interesting1 actions in
+    let debug = debug && interesting in
+
     let document = user.document and
         users = !(user.document.users) and
         list_of_queue q = List.of_seq @@ Queue.to_seq q and
